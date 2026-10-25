@@ -52,7 +52,7 @@ export function saveLessonSources(chatId: string, files: readonly IncomingSource
 		const reason = lessonSourceError(file.name, file.bytes.byteLength, existing + planned.length);
 		if (reason) return { ok: false, status: 400, error: reason };
 		const name = storedName(file.name, used);
-		if (!name) return { ok: false, status: 400, error: "Attach a PDF, text, Markdown, code, data, or image file." };
+		if (!name) return { ok: false, status: 400, error: "Attach a PDF, Word, PowerPoint, Excel, text, Markdown, code, data, or image file." };
 		planned.push({ name, bytes: file.bytes });
 	}
 	fs.mkdirSync(dir, { recursive: true });

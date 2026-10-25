@@ -4,6 +4,7 @@ import { Type } from "typebox";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { serverExecute, type ImageFileResult } from "../tool-execute.ts";
 import { resolveSourcePath } from "./fs-shared.ts";
+import { extractOfficeText, isOfficeSourceExtension } from "./office-text.ts";
 
 /**
  * The read tool — sources v0 (2026-09): a Node port of pi's read semantics
@@ -98,7 +99,7 @@ function readTextSlice(text: string, offset: number | undefined, limit: number |
 export const readTool: AgentTool<typeof readInput> = {
 	name: "read",
 	label: "read",
-	description: `Read the contents of a file. Supports text files and images (jpg, png, gif, webp, bmp). Images are sent as attachments. For text files, output is truncated to 2000 lines or 50.0KB (whichever is hit first). Use offset/limit for large files. When you need the full file, continue with offset until complete.`,
+	description: `Read the contents of a file. Supports text, Office documents (docx, pptx, xlsx, odt, odp, ods), and images (jpg, png, gif, webp, bmp). Images are sent as attachments. Office files are extracted to plain text. Text output is truncated to 2000 lines or 50.0KB (whichever is hit first). Use offset/limit for large files. When you need the full file, continue with offset until complete. For PDFs use the pdf tools instead.`,
 	parameters: readInput,
 	execute: serverExecute("read", readInput, async ({ path: rawPath, offset, limit }): Promise<string | ImageFileResult> => {
 		const absolute = resolveSourcePath(rawPath);
@@ -113,6 +114,10 @@ export const readTool: AgentTool<typeof readInput> = {
 				text: `Read image file [${mime}] — ${path.basename(absolute)} (${formatSize(buffer.byteLength)}), attached as an image.`,
 				images: [{ data: buffer.toString("base64"), mimeType: mime }],
 			};
+		}
+		if (isOfficeSourceExtension(ext)) {
+			const text = await extractOfficeText(buffer, path.basename(absolute));
+			return readTextSlice(text, offset, limit);
 		}
 		const text = buffer.toString("utf-8");
 		return readTextSlice(text, offset, limit);
