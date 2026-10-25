@@ -6,7 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { MenuShell } from "@/components/menu-shell";
 import { DeleteSessionDialog } from "@/components/delete-session-dialog";
 import type { ChatDeleteMode } from "@/src/core";
-import { DumbbellIcon, PanelLeftCloseIcon, PanelLeftOpenIcon, PlusIcon, SearchIcon, SettingsIcon } from "lucide-react";
+import { DumbbellIcon, FolderIcon, PanelLeftCloseIcon, PanelLeftOpenIcon, PlusIcon, SearchIcon, SettingsIcon } from "lucide-react";
 import { ActivitySection } from "@/components/activity-dock";
 import { CoverageMenuBlock } from "@/components/extraction-coverage";
 import { LhMark } from "@/components/lh-mark";
@@ -835,10 +835,22 @@ function SessionsSidebar() {
 					    learner opted out (no ambient signal, user decision). */}
 					<ActivitySection />
 
-					{/* Settings entry (settings-app wave): same row language as
-					    New session — quiet, bottom-pinned, opens the centered
-					    dialog (also mod+, in the keyboard registry). */}
-					<div className="px-3 pb-3 pt-1">
+					{/* Projects + Settings — quiet bottom rows. */}
+					<div className="flex flex-col gap-0.5 px-3 pb-3 pt-1">
+						<button
+							type="button"
+							onClick={() => router.push("/projects")}
+							data-testid="projects-entry"
+							className={cn(
+								"flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs uppercase tracking-wider transition-colors hover:bg-accent hover:text-foreground",
+								pathname === "/projects" || pathname.startsWith("/projects/")
+									? "bg-accent text-foreground"
+									: "text-muted-foreground",
+							)}
+						>
+							<FolderIcon className="size-3" />
+							Projects
+						</button>
 						<Hint label="Settings" action="open-settings" side="right">
 							<button
 								type="button"
