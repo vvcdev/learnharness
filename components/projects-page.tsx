@@ -4,13 +4,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { CheckIcon, FolderPlusIcon, TrashIcon } from "lucide-react";
 import {
 	LESSON_SOURCE_ACCEPT,
-	lessonSourceError,
 	type ProjectDetail,
 	type ProjectSummary,
 	projectInstructionsError,
 	projectNameError,
 } from "@/src/core";
 import { SidebarToggle } from "@/components/sidebar";
+import { stagePickedFiles, type AttachedSource } from "@/components/source-attach";
 
 async function loadList(): Promise<{ activeId: string | null; projects: ProjectSummary[] }> {
 	const res = await fetch("/api/projects", { cache: "no-store" });
@@ -222,7 +222,7 @@ export function ProjectPackForm({
 	const [name, setName] = useState(initial?.name ?? "");
 	const [instructions, setInstructions] = useState(initial?.instructions ?? "");
 	const [existing, setExisting] = useState(initial?.files ?? []);
-	const [incoming, setIncoming] = useState<File[]>([]);
+	const [incoming, setIncoming] = useState<AttachedSource[]>([]);
 	const [error, setError] = useState<string | null>(null);
 	const [busy, setBusy] = useState(false);
 	const fileInputRef = useRef<HTMLInputElement>(null);
@@ -240,13 +240,14 @@ export function ProjectPackForm({
 		}
 		setBusy(true);
 		setError(null);
+		const claim = incoming.map((file) => ({ batchId: file.batchId, stored: file.stored }));
 		try {
 			if (!initial) {
-				const body = new FormData();
-				body.set("name", name.trim());
-				body.set("instructions", instructions);
-				for (const file of incoming) body.append("file", file);
-				const res = await fetch("/api/projects", { method: "POST", body });
+				const res = await fetch("/api/projects", {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ name: name.trim(), instructions, claim }),
+				});
 				const payload = (await res.json().catch(() => ({}))) as ProjectDetail & { error?: string };
 				if (!res.ok) throw new Error(payload.error || "Could not save the project.");
 				await onSaved(payload);
@@ -258,10 +259,12 @@ export function ProjectPackForm({
 				});
 				let project = (await metaRes.json().catch(() => ({}))) as ProjectDetail & { error?: string };
 				if (!metaRes.ok) throw new Error(project.error || "Could not save the project.");
-				if (incoming.length > 0) {
-					const body = new FormData();
-					for (const file of incoming) body.append("file", file);
-					const filesRes = await fetch(`/api/projects/${initial.id}/files`, { method: "POST", body });
+				if (claim.length > 0) {
+					const filesRes = await fetch(`/api/projects/${initial.id}/files`, {
+						method: "POST",
+						headers: { "Content-Type": "application/json" },
+						body: JSON.stringify({ claim }),
+					});
 					project = (await filesRes.json().catch(() => ({}))) as ProjectDetail & { error?: string };
 					if (!filesRes.ok) throw new Error(project.error || "Could not add files.");
 				}
@@ -329,19 +332,16 @@ export function ProjectPackForm({
 						tabIndex={-1}
 						onChange={(e) => {
 							const list = e.target.files;
-							if (!list) return;
-							const next = [...incoming];
-							for (const file of list) {
-								const reason = lessonSourceError(file.name, file.size, existing.length + next.length);
-								if (reason) {
-									setError(reason);
-									break;
-								}
-								next.push(file);
-								setError(null);
-							}
-							setIncoming(next);
 							e.target.value = "";
+							if (!list) return;
+							void stagePickedFiles(incoming, list, existing.length).then((picked) => {
+								if (picked.error) {
+									setError(picked.error);
+									return;
+								}
+								setIncoming(picked.files);
+								setError(null);
+							});
 						}}
 					/>
 				</div>
@@ -355,13 +355,13 @@ export function ProjectPackForm({
 								</button>
 							</span>
 						))}
-						{incoming.map((file, index) => (
-							<span key={`${file.name}-${index}`} className="flex max-w-52 items-center gap-1 rounded-md border border-dashed px-2 py-1 text-xs">
+						{incoming.map((file) => (
+							<span key={`${file.batchId}:${file.stored}`} className="flex max-w-52 items-center gap-1 rounded-md border border-dashed px-2 py-1 text-xs">
 								<span className="truncate">{file.name}</span>
 								<button
 									type="button"
 									aria-label={`Remove ${file.name}`}
-									onClick={() => setIncoming(incoming.filter((_, i) => i !== index))}
+									onClick={() => setIncoming(incoming.filter((f) => !(f.batchId === file.batchId && f.stored === file.stored)))}
 									className="text-muted-foreground hover:text-foreground"
 								>
 									×

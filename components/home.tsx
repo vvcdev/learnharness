@@ -7,7 +7,7 @@ import { GraphView } from "@/components/graph-view";
 import { MinimalHome } from "@/components/minimal-home";
 import { SetupDialog } from "@/components/setup-dialog";
 import { ComposerActions, NodePickerControl } from "@/components/composer-actions";
-import { openingWithSources, SourcePicker } from "@/components/source-attach";
+import { openingWithSources, SourcePicker, type AttachedSource } from "@/components/source-attach";
 import { ProjectPackControl } from "@/components/project-pack";
 import { useStrongKeyless, useZeroKeys, ZeroKeysPill } from "@/components/setup-cta";
 import { joinDictation, useDictation } from "@/components/dictation";
@@ -39,12 +39,12 @@ export function Home({
 	 * dictation flush lands via setState, invisible to a closure that
 	 * waited through `await finish()`. Kept current at every write. */
 	const topicRef = useRef("");
-	const [sources, setSources] = useState<File[]>([]);
-	const sourcesRef = useRef<File[]>([]);
+	const [sources, setSources] = useState<AttachedSource[]>([]);
+	const sourcesRef = useRef<AttachedSource[]>([]);
 	const [sourceError, setSourceError] = useState<string | null>(null);
 	const [activeProject, setActiveProject] = useState<ProjectSummary | null>(null);
 	const activeProjectRef = useRef<ProjectSummary | null>(null);
-	const applySources = (next: File[]) => {
+	const applySources = (next: AttachedSource[]) => {
 		sourcesRef.current = next;
 		setSources(next);
 	};

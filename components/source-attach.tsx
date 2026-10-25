@@ -4,10 +4,61 @@ import { useRef, type ReactNode } from "react";
 import { PaperclipIcon, XIcon } from "lucide-react";
 import { appendProjectContext, LESSON_SOURCE_ACCEPT, lessonSourceError } from "@/src/core";
 
-export async function uploadLessonSources(chatId: string, files: readonly File[]): Promise<string[]> {
+/** A picked file already copied into the app's uploads folder. */
+export type AttachedSource = {
+	name: string;
+	size: number;
+	batchId: string;
+	stored: string;
+};
+
+export async function stagePickedFiles(
+	current: readonly AttachedSource[],
+	incoming: FileList | null,
+	/** How many files already live on the project/session besides `current`. */
+	already = 0,
+): Promise<{ files: AttachedSource[]; error: string | null }> {
+	if (!incoming || incoming.length === 0) return { files: [...current], error: null };
+	const next = [...current];
+	const toUpload: File[] = [];
+	for (const file of incoming) {
+		const reason = lessonSourceError(file.name, file.size, already + next.length + toUpload.length);
+		if (reason) return { files: next, error: reason };
+		// Snapshot bytes immediately so deleting Downloads can't empty the File handle.
+		const bytes = await file.arrayBuffer();
+		toUpload.push(new File([bytes], file.name, { type: file.type }));
+	}
+	if (toUpload.length === 0) return { files: next, error: null };
 	const body = new FormData();
-	for (const file of files) body.append("file", file);
-	const response = await fetch(`/api/chats/${chatId}/sources`, { method: "POST", body });
+	for (const file of toUpload) body.append("file", file);
+	const response = await fetch("/api/uploads", { method: "POST", body });
+	const payload = (await response.json().catch(() => ({}))) as {
+		id?: string;
+		files?: { name: string; stored: string }[];
+		error?: string;
+	};
+	if (!response.ok || !payload.id || !payload.files) {
+		return { files: next, error: payload.error || "Could not save the files inside the app." };
+	}
+	payload.files.forEach((file, index) => {
+		next.push({
+			name: file.name,
+			size: toUpload[index]?.size ?? 0,
+			batchId: payload.id!,
+			stored: file.stored,
+		});
+	});
+	return { files: next, error: null };
+}
+
+export async function uploadLessonSources(chatId: string, files: readonly AttachedSource[]): Promise<string[]> {
+	const response = await fetch(`/api/chats/${chatId}/sources`, {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({
+			claim: files.map((file) => ({ batchId: file.batchId, stored: file.stored })),
+		}),
+	});
 	const payload = (await response.json().catch(() => ({}))) as { paths?: string[]; error?: string };
 	if (!response.ok || !payload.paths) throw new Error(payload.error || "Could not save the sources.");
 	return payload.paths;
@@ -17,7 +68,7 @@ export async function uploadLessonSources(chatId: string, files: readonly File[]
 export async function openingWithSources(
 	chatId: string,
 	text: string,
-	files: readonly File[],
+	files: readonly AttachedSource[],
 	options: { useActiveProject?: boolean; projectId?: string } = { useActiveProject: true },
 ): Promise<string> {
 	const paths: string[] = [];
@@ -43,13 +94,14 @@ export async function openingWithSources(
 	return opening;
 }
 
-export function takeSourceFiles(current: readonly File[], incoming: FileList | null): { files: File[]; error: string | null } {
+/** @deprecated Prefer stagePickedFiles — kept for tests that only validate counts. */
+export function takeSourceFiles(current: readonly AttachedSource[], incoming: FileList | null): { files: AttachedSource[]; error: string | null } {
 	if (!incoming || incoming.length === 0) return { files: [...current], error: null };
 	const next = [...current];
 	for (const file of incoming) {
 		const reason = lessonSourceError(file.name, file.size, next.length);
 		if (reason) return { files: next, error: reason };
-		next.push(file);
+		next.push({ name: file.name, size: file.size, batchId: "pending", stored: file.name });
 	}
 	return { files: next, error: null };
 }
@@ -59,8 +111,8 @@ function SourceChips({
 	onChange,
 	error,
 }: {
-	files: readonly File[];
-	onChange: (files: File[]) => void;
+	files: readonly AttachedSource[];
+	onChange: (files: AttachedSource[]) => void;
 	error?: string | null;
 }) {
 	if (files.length === 0 && !error) return null;
@@ -68,14 +120,14 @@ function SourceChips({
 		<div className="flex flex-col gap-1 px-1.5 pb-1">
 			{files.length > 0 && (
 				<div className="flex flex-wrap items-center gap-1.5">
-					{files.map((file, index) => (
-						<span key={`${file.name}-${index}`} className="flex max-w-48 items-center gap-1 rounded-sm border border-border bg-background px-1.5 py-0.5 text-xs text-foreground">
+					{files.map((file) => (
+						<span key={`${file.batchId}:${file.stored}`} className="flex max-w-48 items-center gap-1 rounded-sm border border-border bg-background px-1.5 py-0.5 text-xs text-foreground">
 							<span className="truncate">{file.name}</span>
 							<button
 								type="button"
 								aria-label={`Remove ${file.name}`}
 								className="text-muted-foreground hover:text-foreground"
-								onClick={() => onChange(files.filter((_, i) => i !== index))}
+								onClick={() => onChange(files.filter((f) => !(f.batchId === file.batchId && f.stored === file.stored)))}
 							>
 								<XIcon className="size-3" />
 							</button>
@@ -95,9 +147,9 @@ export function SourceAttachButton({
 	onChange,
 	onError,
 }: {
-	files: readonly File[];
+	files: readonly AttachedSource[];
 	disabled?: boolean;
-	onChange: (files: File[]) => void;
+	onChange: (files: AttachedSource[]) => void;
 	onError: (error: string | null) => void;
 }) {
 	const inputRef = useRef<HTMLInputElement>(null);
@@ -122,10 +174,12 @@ export function SourceAttachButton({
 				className="sr-only"
 				tabIndex={-1}
 				onChange={(event) => {
-					const picked = takeSourceFiles(files, event.target.files);
-					onChange(picked.files);
-					onError(picked.error);
+					const list = event.target.files;
 					event.target.value = "";
+					void stagePickedFiles(files, list).then((picked) => {
+						onChange(picked.files);
+						onError(picked.error);
+					});
 				}}
 			/>
 		</>
@@ -141,10 +195,10 @@ export function SourcePicker({
 	onError,
 	row,
 }: {
-	files: readonly File[];
+	files: readonly AttachedSource[];
 	disabled?: boolean;
 	error?: string | null;
-	onChange: (files: File[]) => void;
+	onChange: (files: AttachedSource[]) => void;
 	onError: (error: string | null) => void;
 	/** When set, only the paperclip is returned so the parent can place it in the text row. */
 	row?: (attach: ReactNode) => ReactNode;

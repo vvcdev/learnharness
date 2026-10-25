@@ -12,7 +12,7 @@ import { useStrongKeyless, useZeroKeys, ZeroKeysPill } from "@/components/setup-
 import { StatsBar } from "@/components/stats-bar";
 import { ChainTableOverlay } from "@/components/chain-table.tsx";
 import { ComposerActions, NodePickerControl } from "@/components/composer-actions";
-import { openingWithSources, SourcePicker } from "@/components/source-attach";
+import { openingWithSources, SourcePicker, type AttachedSource } from "@/components/source-attach";
 import { ProjectPackControl } from "@/components/project-pack";
 import type { ChatSettings, GraphSnapshot, ProjectSummary } from "@/src/core";
 
@@ -117,9 +117,9 @@ export function DraftShell({
 	 *  the graph view (the overlay fills its column, never the sidebar).
 	 *  Passed as a node so the pick state stays in NewSession. */
 	overlay?: ReactNode;
-	sources?: File[];
+	sources?: AttachedSource[];
 	sourceError?: string | null;
-	onSources?: (files: File[]) => void;
+	onSources?: (files: AttachedSource[]) => void;
 	onSourceError?: (error: string | null) => void;
 	activeProject?: ProjectSummary | null;
 	onActiveProject?: (project: ProjectSummary | null) => void;
@@ -308,12 +308,12 @@ export function NewSession({ initialConfigured, mode = "teach" }: { initialConfi
 	// provider has none — the same skip-everything treatment on send.
 	const strongKeyless = useStrongKeyless();
 	const [setupOpen, setSetupOpen] = useState(false);
-	const [sources, setSources] = useState<File[]>([]);
-	const sourcesRef = useRef<File[]>([]);
+	const [sources, setSources] = useState<AttachedSource[]>([]);
+	const sourcesRef = useRef<AttachedSource[]>([]);
 	const [sourceError, setSourceError] = useState<string | null>(null);
 	const [activeProject, setActiveProject] = useState<ProjectSummary | null>(null);
 	const activeProjectRef = useRef<ProjectSummary | null>(null);
-	const applySources = (next: File[]) => {
+	const applySources = (next: AttachedSource[]) => {
 		sourcesRef.current = next;
 		setSources(next);
 	};

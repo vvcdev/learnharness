@@ -23,7 +23,7 @@ import { AnsweredCard } from "@/components/answered-card";
 import { artifactRenderers } from "@/components/artifacts";
 import { SubagentSteerCard } from "@/components/artifacts/steer-card";
 import { Composer } from "@/components/composer";
-import { SourcePicker, uploadLessonSources } from "@/components/source-attach";
+import { SourcePicker, uploadLessonSources, type AttachedSource } from "@/components/source-attach";
 import { appendLessonSources } from "@/src/core";
 import { useEnterSubmits } from "@/components/enter-submits";
 import { blurAfterPointerClick } from "@/components/focus-hygiene";
@@ -554,10 +554,10 @@ export function Chat({
 		textRef.current = v;
 		setText(v);
 	}, []);
-	const [sources, setSources] = useState<File[]>([]);
-	const sourcesRef = useRef<File[]>([]);
+	const [sources, setSources] = useState<AttachedSource[]>([]);
+	const sourcesRef = useRef<AttachedSource[]>([]);
 	const [sourceError, setSourceError] = useState<string | null>(null);
-	const applySources = (next: File[]) => {
+	const applySources = (next: AttachedSource[]) => {
 		sourcesRef.current = next;
 		setSources(next);
 		if (next.length === 0) setSourceError(null);
