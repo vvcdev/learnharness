@@ -397,10 +397,12 @@ export function KeysSection({
 	}
 
 	if (loading || statuses === null) {
-		return <p className="px-6 py-5 text-xs text-muted-foreground/70">Loading keys…</p>;
+		return (
+			<SettingsGroup label="Subscriptions" testid="group-subscriptions">
+				<SubscriptionConnections />
+			</SettingsGroup>
+		);
 	}
-
-	const { providerRows, toolRows, unknownRows, addable } = classifyKeys(statuses, providers);
 
 	async function saveNewProvider(p: ProviderKeyInfo, value: string) {
 		const err = await saveKey(p.envVar, value);
@@ -412,75 +414,9 @@ export function KeysSection({
 	}
 
 	return (
-		<>
-			<SettingsGroup label="Model API keys" testid="group-provider-keys">
-				{providerRows.map((status) => (
-					<KeyTableRow
-						key={status.id}
-						label={providers?.find((p) => p.envVar === status.id)?.label ?? status.info?.label ?? status.id}
-						docsUrl={status.info?.docsUrl}
-						status={status}
-						expanded={openRow === status.id}
-						onToggle={() => setOpenRow(openRow === status.id ? null : status.id)}
-						onSave={async (v) => {
-							const err = await saveKey(status.id, v);
-							if (!err) setOpenRow(null); // fold on success — rest state
-							return err;
-						}}
-						onCancel={() => setOpenRow(null)}
-						onDelete={() => deleteKey(status.id)}
-						testid={`key-${status.id.toLowerCase()}`}
-					/>
-				))}
-				{providers !== undefined && (
-					<AddProviderRow
-						addable={addable}
-						onPick={(p) => {
-							setAdding(p);
-							setAddError(null);
-						}}
-					/>
-				)}
-				{adding && (
-					<div className="flex items-center gap-2 rounded-sm px-1 py-1.5" data-testid={`key-${adding.id}-editor`}>
-						<span className="shrink-0 font-ui text-xs text-foreground">{adding.label}</span>
-						<AddProviderEditor provider={adding} onSave={(v) => void saveNewProvider(adding, v)} onCancel={() => setAdding(null)} error={addError} />
-					</div>
-				)}
-				{unknownRows.length > 0 && <div data-testid="group-unknown-keys">
-					{unknownRows.map((status) => <div key={status.id} data-testid={`unknown-${status.id}`} className="flex items-center justify-between gap-3 px-1 py-1.5 opacity-40">
-						<span className="font-mono text-xs text-foreground">{status.id}</span>
-						<span className="font-mono text-[11px] text-muted-foreground">{status.masked}</span>
-					</div>)}
-				</div>}
-			</SettingsGroup>
-
-			<SettingsGroup label="Subscriptions" testid="group-subscriptions">
-				<SubscriptionConnections />
-			</SettingsGroup>
-
-			{(["Dictation", "Search"] as const).map((label) => <SettingsGroup key={label} label={label} testid={label === "Dictation" ? "group-dictation" : "group-search"}>
-				{toolRows.filter((status) => label === "Dictation" ? status.id === "DEEPGRAM_API_KEY" : status.id !== "DEEPGRAM_API_KEY").map((status) => (
-					<KeyTableRow
-						key={status.id}
-						label={status.info?.label ?? status.id}
-						docsUrl={status.info?.docsUrl}
-						status={status}
-						expanded={openRow === status.id}
-						onToggle={() => setOpenRow(openRow === status.id ? null : status.id)}
-						onSave={async (v) => {
-							const err = await saveKey(status.id, v);
-							if (!err) setOpenRow(null);
-							return err;
-						}}
-						onCancel={() => setOpenRow(null)}
-						onDelete={() => deleteKey(status.id)}
-						testid={`key-${status.id.toLowerCase()}`}
-					/>
-				))}
-			</SettingsGroup>)}
-
-		</>
+		<SettingsGroup label="Subscriptions" testid="group-subscriptions">
+			<SubscriptionConnections />
+		</SettingsGroup>
 	);
 }
 

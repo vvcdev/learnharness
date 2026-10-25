@@ -43,4 +43,6 @@ export * from "./compaction.ts";
 export { runPiTurn, piTurnResponse, type PiTurnHandle, type PiTurnSpec } from "./pi/ui-stream.ts";
 export * from "./observability.ts";
 export * from "./model-catalog.ts";
+export { claudeCodeStatus } from "../agent/claude-code-auth.ts";
+export { saveLessonSources, removeSessionSources } from "./session-sources.ts";
 export { sessionCost } from "./pricing.ts";

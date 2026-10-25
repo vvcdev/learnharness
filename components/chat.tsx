@@ -23,11 +23,13 @@ import { AnsweredCard } from "@/components/answered-card";
 import { artifactRenderers } from "@/components/artifacts";
 import { SubagentSteerCard } from "@/components/artifacts/steer-card";
 import { Composer } from "@/components/composer";
+import { SourcePicker, uploadLessonSources } from "@/components/source-attach";
+import { appendLessonSources } from "@/src/core";
 import { useEnterSubmits } from "@/components/enter-submits";
 import { blurAfterPointerClick } from "@/components/focus-hygiene";
 import { dockStateKey } from "@/components/dock-state-key";
 import { QueuedSteersBody, type QueuedSteerLine } from "@/components/queued-steers";
-import { DictationBar, finishDictation, joinDictation, useDictation } from "@/components/dictation";
+import { finishDictation, joinDictation, useDictation } from "@/components/dictation";
 import { useFieldCycle } from "@/components/field-cycle";
 import { JobsContext } from "@/components/jobs-context";
 import { StatsBar } from "@/components/stats-bar";
@@ -552,6 +554,14 @@ export function Chat({
 		textRef.current = v;
 		setText(v);
 	}, []);
+	const [sources, setSources] = useState<File[]>([]);
+	const sourcesRef = useRef<File[]>([]);
+	const [sourceError, setSourceError] = useState<string | null>(null);
+	const applySources = (next: File[]) => {
+		sourcesRef.current = next;
+		setSources(next);
+		if (next.length === 0) setSourceError(null);
+	};
 	// The BYOK setup flow (owner, 2026-09-22): the persistent CTA and the
 	// refusal interception share one SetupDialog mount. `configured` is
 	// seeded server-side (slotsConfigured on the record) and flips on Save.
@@ -680,7 +690,7 @@ export function Chat({
 	// affordance).
 	const [compacting, setCompacting] = useState(initiallyCompacting);
 	const canSend =
-		(text.trim().length > 0 || dictation.active) && !pending && !activeProblem && !compacting;
+		(text.trim().length > 0 || dictation.active || sources.length > 0) && !pending && !activeProblem && !compacting;
 
 	/* THE PRACTICE PAUSE (owner round 16): between problems — practice
 	 * kind, nothing active, nothing in flight, and at least one problem
@@ -1139,13 +1149,29 @@ export function Chat({
 		}
 		void dictation.finish().then(doSteerOrSend);
 	};
-	const doSend = () => {
-		if (busy || pending || compacting) return;
+	const deliver = async (steering: boolean) => {
+		if (pending || compacting) return;
 		const t = textRef.current.trim();
-		if (!t) return;
-		draftRef.current = t; // the refusal flow's preserve-and-replay seam
+		const attached = sourcesRef.current;
+		if (!t && attached.length === 0) return;
+		if (!steering && busy) return;
+		let textOut = t;
+		if (attached.length > 0) {
+			try {
+				textOut = appendLessonSources(t, await uploadLessonSources(chatId, attached));
+			} catch (error) {
+				setSourceError(error instanceof Error ? error.message : "Could not save the sources.");
+				return;
+			}
+			applySources([]);
+		}
+		draftRef.current = textOut;
 		applyText("");
-		void send({ type: "text", text: t });
+		if (steering) void steer(textOut);
+		else void send({ type: "text", text: textOut });
+	};
+	const doSend = () => {
+		void deliver(false);
 	};
 
 	/* STEER VS SEND (owner arc 2026-10-03): a send while a turn runs steers
@@ -1158,15 +1184,7 @@ export function Chat({
 	 * time the send's POST resolved, so the steer lands. Idle takes the
 	 * plain send; a raced settle 409s and falls back to exactly that. */
 	const doSteerOrSend = () => {
-		if (pending || compacting) return;
-		const t = textRef.current.trim();
-		if (!t) return;
-		if (busy) {
-			applyText("");
-			void steer(t);
-			return;
-		}
-		doSend();
+		void deliver(busy);
 	};
 
 	return (
@@ -1610,7 +1628,6 @@ export function Chat({
 					contextTokens={contextTokens}
 					pricing={pricing}
 					onReserve={setDockReserve}
-					dictationSlot={<DictationBar dictation={dictation} />}
 					dictationCancel={dictation.cancel}
 					queuedSteers={visibleQueuedSteers(steerQueue, nativeMessages)}
 					setupCta={
@@ -1644,6 +1661,16 @@ export function Chat({
 							onSend={onSend}
 							onStop={abortInFlightTurn}
 							canSend={canSend}
+							attachments={(row) => (
+								<SourcePicker
+									files={sources}
+									disabled={compacting}
+									error={sourceError}
+									onChange={applySources}
+									onError={setSourceError}
+									row={row}
+								/>
+							)}
 							onEscape={dictation.active ? dictation.cancel : undefined}
 							// The pause affordance (owner round 16): the placeholder
 							// IS the hint — empty state, exactly where Enter-on-empty

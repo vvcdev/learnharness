@@ -147,8 +147,8 @@ export function createWebTools(search: () => SearchProvider | null): Record<stri
 				const provider = search();
 				if (!provider) {
 					return (
-						"web_search is not available: no search engine is configured. " +
-						"Set a Tavily or Brave search API key in settings. Report in your brief that web search is unavailable."
+						"web_search is not available: Claude Code is not signed in. " +
+						"Run claude auth login in Terminal. Report in your brief that web search is unavailable."
 					);
 				}
 				try {

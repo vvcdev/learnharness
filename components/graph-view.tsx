@@ -914,17 +914,6 @@ export function GraphChromeRow({
 			{/* Import notes — its own container (36px, header band); ALWAYS
 			    rendered (the empty-graph ruling above — the entry point). */}
 			<div className="shrink-0 rounded-xl border bg-card/85 px-1 py-[3px] shadow-lg backdrop-blur">
-				<input
-					ref={fileInputRef}
-					type="file"
-					multiple
-					accept=".md,.markdown,.txt"
-					className="hidden"
-					onChange={(e) => {
-						onImportFiles(e.target.files);
-						e.target.value = ""; // allow re-picking the same file
-					}}
-				/>
 				<Hint
 					// The one button whose action isn't obvious from its label:
 					// the missing fact is where imports go (owner, subtlety
@@ -932,16 +921,27 @@ export function GraphChromeRow({
 					label="Import notes into the graph"
 					side="bottom"
 				>
-					<button
-						type="button"
-						disabled={importing}
-						onClick={() => fileInputRef.current?.click()}
+					<label
 						data-testid="import-notes"
-					className="flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-xs text-muted-foreground transition-colors hover:bg-accent disabled:opacity-50"
-				>
+						aria-disabled={importing || undefined}
+						className={`flex h-7 cursor-pointer items-center gap-1.5 rounded-lg px-2.5 text-xs text-muted-foreground transition-colors hover:bg-accent ${importing ? "pointer-events-none opacity-50" : ""}`}
+					>
+						<input
+							ref={fileInputRef}
+							type="file"
+							multiple
+							accept=".md,.markdown,.txt,text/plain,text/markdown"
+							disabled={importing}
+							className="sr-only"
+							tabIndex={-1}
+							onChange={(e) => {
+								onImportFiles(e.target.files);
+								e.target.value = ""; // allow re-picking the same file
+							}}
+						/>
 						<UploadIcon className="size-3" />
 						{importing ? "Importing…" : "Import notes…"}
-					</button>
+					</label>
 				</Hint>
 			</div>
 			{!isEmpty && (

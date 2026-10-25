@@ -14,6 +14,8 @@ import { DEFAULT_THINKING_ORDER } from "../core/settings.ts";
 import packageMetadata from "../../package.json" with { type: "json" };
 import { chatGPTModel } from "./chatgpt-bridge.ts";
 import { chatGPTStream } from "./chatgpt-stream.ts";
+import { claudeCodeConnected, CLAUDE_CODE_PROVIDER } from "./claude-code-auth.ts";
+import { claudeCodeStream } from "./claude-code-stream.ts";
 import type { ChatGPTDispatchLifecycle } from "./chatgpt-request-cycle.ts";
 import { nativeSubscriptionId, nativeSubscriptionModel } from "./subscription-bridge.ts";
 import { nativeSubscriptionStream } from "./subscription-stream.ts";
@@ -101,7 +103,8 @@ function defaultThinkingLevel(model: Model<Api>): ThinkingLevel {
 export function piEngineForSpec(spec: ResolvedModelSpec, background: boolean | (() => boolean) = true, lifecycle?: ChatGPTDispatchLifecycle): PiEngine {
 	const models: Models = piModels();
 	const nativeId = nativeSubscriptionId(spec.provider);
-	const model = spec.provider === "chatgpt" ? chatGPTModel(spec.id) : nativeId ? nativeSubscriptionModel(spec.provider, spec.id) : models.getModel(spec.provider, spec.id);
+	const anthropic = spec.provider === CLAUDE_CODE_PROVIDER && claudeCodeConnected() ? models.getModel("anthropic", spec.id) : undefined;
+	const model = spec.provider === "chatgpt" ? chatGPTModel(spec.id) : spec.provider === CLAUDE_CODE_PROVIDER && anthropic ? { ...anthropic, provider: CLAUDE_CODE_PROVIDER } : nativeId ? nativeSubscriptionModel(spec.provider, spec.id) : models.getModel(spec.provider, spec.id);
 	if (!model) {
 		throw new Error(`${spec.provider} catalog has no model ${spec.id}`);
 	}
@@ -119,7 +122,15 @@ export function piEngineForSpec(spec: ResolvedModelSpec, background: boolean | (
 		// the pin honest even when config or settings drift off the map.
 		streamFn: (requestModel, context, options) => {
 			const purpose = typeof background === "function" ? background : () => background;
-			const stream = spec.provider === "chatgpt" ? chatGPTStream(purpose, lifecycle) : nativeId ? nativeSubscriptionStream(models.getProvider(nativeId)!, purpose, lifecycle) : models.streamSimple.bind(models);
+			const claudeNative = spec.provider === CLAUDE_CODE_PROVIDER ? models.getModel("anthropic", spec.id) : undefined;
+			const claudeProvider = spec.provider === CLAUDE_CODE_PROVIDER ? models.getProvider("anthropic") : undefined;
+			const stream = spec.provider === "chatgpt"
+				? chatGPTStream(purpose, lifecycle)
+				: claudeNative && claudeProvider
+					? claudeCodeStream(claudeNative, claudeProvider.streamSimple.bind(claudeProvider))
+					: nativeId
+						? nativeSubscriptionStream(models.getProvider(nativeId)!, purpose, lifecycle)
+						: models.streamSimple.bind(models);
 			return stream(requestModel, context, { ...options, reasoning: level === "off" ? undefined : level });
 		},
 	};

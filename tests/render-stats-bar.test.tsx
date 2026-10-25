@@ -92,6 +92,8 @@ describe("stats bar", () => {
 	it("prettyModel strips vendor + date suffix, keeps dashes", () => {
 		assert.equal(prettyModel("z-ai/glm-5.3-flash"), "glm-5.3-flash"); // dashes kept (owner round 5)
 		assert.equal(prettyModel("qwen/qwen3.8-max-0902"), "qwen3.8-max");
+		assert.equal(prettyModel("claude-sonnet-5-5"), "claude-sonnet-5.5");
+		assert.equal(prettyModel("claude-opus-4-5"), "claude-opus-4.5");
 	});
 
 	it("provider-qualified stamps (usage contract, model-slots wave)", () => {

@@ -802,51 +802,13 @@ export function AgentSection({
 						/>
 					</SettingsRow>
 				))}
-				{(() => {
-					const engine = agent?.search?.engine ?? null;
-					const anyKey = engineKeys.tavily === true || engineKeys.brave === true;
-					const open = openMenu?.target === "search";
-					return (
-						<SettingsRow
-							label="Search engine"
-							hint={search?.reason ?? undefined}
-							testid="search-engine-row"
-							dimmed={!anyKey}
-						>
-							<span ref={open ? menuAnchorRef : undefined} className="relative flex items-center gap-2">
-								<MenuTrigger
-									value={engine === "tavily" ? "Tavily" : engine === "brave" ? "Brave" : ""}
-									emptyLabel="Automatic"
-									ariaLabel="Search engine"
-									testid="search-engine-trigger"
-									open={open}
-									onClick={() => setOpenMenu(open ? null : { target: "search", kind: "engine" })}
-									widthClass="min-w-20"
-									disabled={!anyKey}
-								/>
-								{open && (
-									<MenuShell
-										preferredSide="down"
-											anchorTestid="search-engine-trigger"
-										testid="search-engine-menu"
-										menuClass="flex w-44 flex-col gap-0.5 rounded-xl border border-border bg-card p-2 text-xs shadow-xl"
-									>
-										{engineOption("auto", "Automatic", engine === null, null, () => {
-											onSectionChange(composeSearchEngine(agent, null));
-											setOpenMenu(null);
-										})}
-										{SEARCH_ENGINES.map((id) =>
-											engineOption(id, id === "tavily" ? "Tavily" : "Brave", engine === id, engineKeys[id] ?? false, () => {
-												onSectionChange(composeSearchEngine(agent, id));
-												setOpenMenu(null);
-											}),
-										)}
-									</MenuShell>
-								)}
-							</span>
-						</SettingsRow>
-					);
-				})()}
+				<SettingsRow
+					label="Search"
+					hint={search?.reason ?? "Search uses your Claude Code login"}
+					testid="search-engine-row"
+				>
+					<span data-testid="search-engine-trigger" className="font-ui text-xs text-foreground">Claude Code</span>
+				</SettingsRow>
 			</SettingsGroup>
 
 			<SettingsGroup label="Context" testid="group-context">

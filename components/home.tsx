@@ -7,8 +7,9 @@ import { GraphView } from "@/components/graph-view";
 import { MinimalHome } from "@/components/minimal-home";
 import { SetupDialog } from "@/components/setup-dialog";
 import { ComposerActions, NodePickerControl } from "@/components/composer-actions";
+import { openingWithSources, SourcePicker } from "@/components/source-attach";
 import { useStrongKeyless, useZeroKeys, ZeroKeysPill } from "@/components/setup-cta";
-import { DictationBar, joinDictation, useDictation } from "@/components/dictation";
+import { joinDictation, useDictation } from "@/components/dictation";
 import { useFieldCycle } from "@/components/field-cycle";
 import { SidebarToggle } from "@/components/sidebar";
 import { StatsBar } from "@/components/stats-bar";
@@ -37,6 +38,13 @@ export function Home({
 	 * dictation flush lands via setState, invisible to a closure that
 	 * waited through `await finish()`. Kept current at every write. */
 	const topicRef = useRef("");
+	const [sources, setSources] = useState<File[]>([]);
+	const sourcesRef = useRef<File[]>([]);
+	const [sourceError, setSourceError] = useState<string | null>(null);
+	const applySources = (next: File[]) => {
+		sourcesRef.current = next;
+		setSources(next);
+	};
 	// First-run gate (model-slots wave, owner 2026-09-20): chats cannot
 	// start until the user has picked all three slots — no defaults for
 	// 33 providers. The dock shows the CTA while unconfigured; submitting
@@ -112,7 +120,8 @@ export function Home({
 	};
 	const begin = async () => {
 		const t = topicRef.current.trim();
-		if (!t || busy) return;
+		const opening = t || (sourcesRef.current.length > 0 ? "Teach me from these sources." : "");
+		if (!opening || busy) return;
 		// Unconfigured: the send INTERCEPTS into the setup flow (the draft
 		// stays in the textarea; the learner sends it after Save).
 		if (!configured) {
@@ -141,7 +150,7 @@ export function Home({
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({
-					title: t,
+					title: opening,
 					...(mode === "practice" ? { kind: "practice" } : {}),
 					...(practiceProps.length > 0 ? { graphContext: { propositions: practiceProps } } : {}),
 				}),
@@ -150,7 +159,17 @@ export function Home({
 			// No settings PUT on create (per-session models, owner
 			// 2026-09-28): the SERVER stamps the newborn from the strong
 			// slot — the same default this surface's model control edits.
-			router.push(`/chat/${id}?prompt=${encodeURIComponent(t)}`);
+			let prompt = opening;
+			try {
+				prompt = await openingWithSources(id, opening, sourcesRef.current);
+			} catch (error) {
+				await fetch(`/api/chats/${id}?mode=preserve-graph`, { method: "DELETE" }).catch(() => {});
+				setSourceError(error instanceof Error ? error.message : "Could not save the sources.");
+				setBusy(false);
+				return;
+			}
+			applySources([]);
+			router.push(`/chat/${id}?prompt=${encodeURIComponent(prompt)}`);
 		} catch {
 			setBusy(false);
 		}
@@ -242,56 +261,62 @@ export function Home({
 						)}
 					/>
 					<form
-						className="flex items-end gap-1.5 rounded-2xl border bg-card p-1.5 shadow-lg"
-					onSubmit={(e) => {
-						e.preventDefault();
-						void start();
-					}}
-				>
-					<textarea
-						ref={topicInputRef}
-						value={topic}
-						onChange={(e) => {
-							topicRef.current = e.target.value;
-							setTopic(e.target.value);
+						className="flex flex-col rounded-2xl border bg-card p-1.5 shadow-lg"
+						onSubmit={(e) => {
+							e.preventDefault();
+							void start();
 						}}
-						onKeyDown={(e) => {
-							// Esc ends dictation (the dictate decisions: click-again or
-							// Esc) — stopPropagation claims it (keyboard wave A) so
-							// the window chain doesn't also abort a turn.
-							if (e.key === "Escape" && dictation.active) {
-								e.preventDefault();
-								e.stopPropagation();
-								dictation.cancel();
-								return;
-							}
-							if (e.key === "Enter" && !e.shiftKey) {
-								e.preventDefault();
-								void start();
-							}
-						}}
-						placeholder={mode === "practice" ? "What do you want to practice?" : "What do you want to learn?"}
-						autoFocus
-						rows={1}
-						className="field-sizing-content lh-input max-h-48 min-h-10 flex-1 resize-none bg-transparent px-2.5 py-2 outline-none placeholder:text-muted-foreground"
-					/>
-					{/* No tooltip on the start square — the ↵ glyph is the
-					    affordance (owner, subtlety round 2026-09-25). */}
-					<button
-						type="submit"
-						aria-label="Start session"
-						disabled={(!topic.trim() && !dictation.active) || busy}
-						className="flex size-10 shrink-0 items-center justify-center rounded-[10px] bg-primary text-primary-foreground transition-colors hover:opacity-90 disabled:opacity-40"
 					>
-						<CornerDownLeftIcon className="size-5" />
-					</button>
+						<SourcePicker
+							files={sources}
+							disabled={busy}
+							error={sourceError}
+							onChange={applySources}
+							onError={setSourceError}
+							row={(attach) => (
+								<div className="flex items-end gap-1.5">
+									{attach}
+									<textarea
+										ref={topicInputRef}
+										value={topic}
+										onChange={(e) => {
+											topicRef.current = e.target.value;
+											setTopic(e.target.value);
+										}}
+										onKeyDown={(e) => {
+											if (e.key === "Escape" && dictation.active) {
+												e.preventDefault();
+												e.stopPropagation();
+												dictation.cancel();
+												return;
+											}
+											if (e.key === "Enter" && !e.shiftKey) {
+												e.preventDefault();
+												void start();
+											}
+										}}
+										placeholder={mode === "practice" ? "What do you want to practice?" : "What do you want to learn?"}
+										autoFocus
+										rows={1}
+										className="field-sizing-content lh-input max-h-48 min-h-10 flex-1 resize-none bg-transparent px-1 py-2 outline-none placeholder:text-muted-foreground"
+									/>
+									<button
+										type="submit"
+										aria-label="Start session"
+										disabled={(!topic.trim() && sources.length === 0 && !dictation.active) || busy}
+										className="flex size-10 shrink-0 items-center justify-center rounded-[10px] bg-primary text-primary-foreground transition-colors hover:opacity-90 disabled:opacity-40"
+									>
+										<CornerDownLeftIcon className="size-5" />
+									</button>
+								</div>
+							)}
+						/>
 					</form>
 					{/* Same as the chat view's under-composer stats bar (owner) — no
 					    session yet, so the LEFT side renders nothing (wave 7 sweep)
 					    while the RIGHT keeps the strong-slot control (fix wave: the
 					    pills write /api/settings/models). */}
 					<StatsBar
-						dictationSlot={<DictationBar dictation={dictation} />}
 						turns={[] as TurnUsage[]}
 						leadingSlot={
 							<div className="flex items-center gap-0.5 rounded-md border border-border/60 bg-background p-0.5" data-testid="home-mode-switch">

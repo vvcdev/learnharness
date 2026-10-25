@@ -27,8 +27,8 @@ describe("web_search on the injected port (web.ts)", () => {
 		const { web_search } = createWebTools(() => null);
 		assert.ok(web_search, "web_search is still exposed without a provider");
 		const out = await web_search!.execute!("c1", { query: "anything" });
-		const missing = "web_search is not available: no search engine is configured. " +
-			"Set a Tavily or Brave search API key in settings. Report in your brief that web search is unavailable.";
+		const missing = "web_search is not available: Claude Code is not signed in. " +
+			"Run claude auth login in Terminal. Report in your brief that web search is unavailable.";
 		assert.equal(out.details, missing);
 		assert.deepEqual(out.content, [{ type: "text", text: missing }]);
 		assert.notEqual(out.isError, true, "missing keys remain ordinary recoverable text, not a native error");
@@ -149,7 +149,7 @@ describe("keyless researcher loop", () => {
 						const result = context.messages.find((m) => m.role === "toolResult" && m.toolCallId === "search1");
 						assert.ok(result && result.role === "toolResult");
 						assert.equal(result.isError, false, "missing keys do not abort the native loop");
-						assert.match(JSON.stringify(result.content), /no search engine is configured/);
+						assert.match(JSON.stringify(result.content), /Claude Code is not signed in/);
 						return fetchCall();
 					},
 				);

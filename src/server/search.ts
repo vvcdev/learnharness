@@ -20,8 +20,9 @@
  */
 
 import type { SearchEngineId, SearchHit, SearchProvider, SearchStatus } from "../core/search.ts";
+import { claudeCodeConnected } from "../agent/claude-code-auth.ts";
 import { keyValue } from "./keys.ts";
-import { effectiveSettings } from "./stores.ts";
+import { claudeCodeSearchProvider } from "./claude-code-search.ts";
 
 /** The wire-callable shape the adapters close over (tests inject a stub). */
 type FetchLike = (input: string, init: RequestInit) => Promise<Response>;
@@ -156,18 +157,21 @@ export function resolveSearchEngineFor(
 	};
 }
 
-/** The live search state (the honest availability signal): reads the
- *  settings record's pin + the auth store fresh each call, so a key saved
- *  mid-session activates on the next check (no restart). */
+/** Search runs through the Claude Code login already on this machine.
+ *  Tavily and Brave keys are not consulted. */
 export function searchStatus(): SearchStatus {
-	const { available, engine, reason } = resolveSearchEngineFor(
-		effectiveSettings().agent.search?.engine,
-		{
-			tavily: engineKey("tavily") ?? undefined,
-			brave: engineKey("brave") ?? undefined,
-		},
-	);
-	return { available, engine, reason };
+	if (!claudeCodeConnected()) {
+		return {
+			available: false,
+			engine: null,
+			reason: "Claude Code is not signed in. Run claude auth login in Terminal.",
+		};
+	}
+	return {
+		available: true,
+		engine: "claude-code",
+		reason: "Search uses your Claude Code login",
+	};
 }
 
 /** Search available at all? (the settings UI's gray-out signal + the
@@ -180,10 +184,6 @@ export function searchAvailable(): boolean {
  *  the tool layer (Teacher stream) calls this once per search, so key
  *  rotations take effect immediately. */
 export function searchProvider(): SearchProvider | null {
-	const resolved = resolveSearchEngineFor(effectiveSettings().agent.search?.engine, {
-		tavily: engineKey("tavily") ?? undefined,
-		brave: engineKey("brave") ?? undefined,
-	});
-	if (!resolved.available || !resolved.key) return null;
-	return resolved.engine === "tavily" ? tavilyProvider(resolved.key) : braveProvider(resolved.key);
+	if (!claudeCodeConnected()) return null;
+	return claudeCodeSearchProvider();
 }

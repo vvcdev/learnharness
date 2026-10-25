@@ -76,20 +76,14 @@ test("Providers is the first/default page; General is last and other pages keep 
  assert.doesNotMatch(html, />Model providers<\/button>/);
 });
 
-test("Providers has exactly four ordered sections; unknown variables stay masked/read-only at the end of Model API keys", async () => {
- globalThis.fetch = async (url) => {
-  assert.equal(url, "/api/keys");
-  return Response.json({ providers: [{ id: "openai", envVar: "OPENAI_API_KEY", label: "OpenAI" }], keys: [{ id: "FUTURE_VAR", info: null, present: true, masked: "…abcd", source: "file", shadowedByEnv: false }] });
- };
+test("Providers shows subscriptions and no API-key rows", async () => {
+ globalThis.fetch = async () => Response.json({});
  fixture(); await mount(<KeysSection />);
  const headings = [...document.querySelectorAll('[data-testid^="group-"] > p')].map((el) => el.textContent);
- assert.deepEqual(headings, ["Model API keys", "Subscriptions", "Dictation", "Search"]);
- assert(byTest("key-deepgram_api_key").closest('[data-testid="group-dictation"]'));
- assert(byTest("key-tavily_api_key").closest('[data-testid="group-search"]'));
- assert(byTest("key-brave_api_key").closest('[data-testid="group-search"]'));
- assert(byTest("unknown-FUTURE_VAR").closest('[data-testid="group-provider-keys"]'));
- assert(byTest("group-unknown-keys").parentElement?.lastElementChild === byTest("group-unknown-keys"));
- assert.equal(byTest("unknown-FUTURE_VAR").textContent, "FUTURE_VAR…abcd"); assert(!byTest("unknown-FUTURE_VAR").querySelector("input, button"));
+ assert.deepEqual(headings, ["Subscriptions"]);
+ assert.equal(document.querySelector('[data-testid="group-dictation"]'), null);
+ assert.equal(document.querySelector('[data-testid="group-search"]'), null);
+ assert.equal(document.querySelector('[data-testid="group-provider-keys"]'), null);
 });
 
 test("disconnected row uses shared Connect action; initial default is ON; cancel discards draft without OAuth/global mutation", async () => {

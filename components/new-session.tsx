@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { useRouter } from "next/navigation";
 import { Conversation, ConversationContent, ConversationEmptyState } from "@/components/ai-elements/conversation";
 import { Composer } from "@/components/composer";
-import { DictationBar, joinDictation, useDictation } from "@/components/dictation";
+import { joinDictation, useDictation } from "@/components/dictation";
 import { useFieldCycle } from "@/components/field-cycle";
 import { SidebarToggle } from "@/components/sidebar";
 import { SetupDialog } from "@/components/setup-dialog";
@@ -12,6 +12,7 @@ import { useStrongKeyless, useZeroKeys, ZeroKeysPill } from "@/components/setup-
 import { StatsBar } from "@/components/stats-bar";
 import { ChainTableOverlay } from "@/components/chain-table.tsx";
 import { ComposerActions, NodePickerControl } from "@/components/composer-actions";
+import { openingWithSources, SourcePicker } from "@/components/source-attach";
 import type { ChatSettings, GraphSnapshot } from "@/src/core";
 
 /** The draft's pick set (owner round 10): the SAME shape the home pick
@@ -83,6 +84,10 @@ export function DraftShell({
 	onOpenPicker,
 	onClearPicks,
 	overlay,
+	sources = [],
+	sourceError = null,
+	onSources,
+	onSourceError,
 }: {
 	busy: boolean;
 	text: string;
@@ -109,6 +114,10 @@ export function DraftShell({
 	 *  the graph view (the overlay fills its column, never the sidebar).
 	 *  Passed as a node so the pick state stays in NewSession. */
 	overlay?: ReactNode;
+	sources?: File[];
+	sourceError?: string | null;
+	onSources?: (files: File[]) => void;
+	onSourceError?: (error: string | null) => void;
 }) {
 	// Voice dictation (STT wave, 2026-09-17): finals append at the end of the
 	// draft text (via the parent's onChange — the truth lives there); the
@@ -126,7 +135,7 @@ export function DraftShell({
 	// round, owner 2026-10-01): the spoken text is deferred in the run's
 	// buffer — Enter must reach the finish-first send, not be gated out by
 	// an empty textarea. Nothing said → the send no-ops.
-	const canSend = text.trim().length > 0 || dictation.active;
+	const canSend = text.trim().length > 0 || dictation.active || sources.length > 0;
 	/* FINISH DICTATION FIRST (owner, 2026-10-01): stop the run, let the
 	 * last finals land through onChange, THEN call the parent's send —
 	 * which reads its REF mirror, so the post-await timing of React's
@@ -198,6 +207,16 @@ export function DraftShell({
 										onSend={handleSend}
 										onStop={() => {}}
 										canSend={canSend}
+										attachments={onSources ? (row) => (
+											<SourcePicker
+												files={sources}
+												disabled={busy}
+												error={sourceError}
+												onChange={onSources}
+												onError={onSourceError ?? (() => {})}
+												row={row}
+											/>
+										) : undefined}
 										inputRef={composerInputRef}
 										autoFocus
 										onEscape={dictation.active ? dictation.cancel : undefined}
@@ -209,7 +228,6 @@ export function DraftShell({
 									/>
 								</div>
 								<StatsBar
-									dictationSlot={<DictationBar dictation={dictation} />}
 									turns={[]}
 								/>
 							</div>
@@ -284,10 +302,17 @@ export function NewSession({ initialConfigured, mode = "teach" }: { initialConfi
 	// provider has none — the same skip-everything treatment on send.
 	const strongKeyless = useStrongKeyless();
 	const [setupOpen, setSetupOpen] = useState(false);
+	const [sources, setSources] = useState<File[]>([]);
+	const sourcesRef = useRef<File[]>([]);
+	const [sourceError, setSourceError] = useState<string | null>(null);
+	const applySources = (next: File[]) => {
+		sourcesRef.current = next;
+		setSources(next);
+	};
 
 	const send = useCallback(() => {
 		const draft = textRef.current.trim();
-		if (!draft || busy) return;
+		if ((!draft && sourcesRef.current.length === 0) || busy) return;
 		if (!configured) {
 			setSetupOpen(true);
 			return;
@@ -302,10 +327,23 @@ export function NewSession({ initialConfigured, mode = "teach" }: { initialConfi
 			return;
 		}
 		setBusy(true);
-		void startDraftSession(draft, fetch, mode === "practice" ? "practice" : undefined, mode === "practice" ? picksRef.current : undefined)
-			.then((target) => {
-				if (target) router.push(target);
-				else setBusy(false);
+		const opening = draft || "Teach me from these sources.";
+		void startDraftSession(opening, fetch, mode === "practice" ? "practice" : undefined, mode === "practice" ? picksRef.current : undefined)
+			.then(async (target) => {
+				if (!target) {
+					setBusy(false);
+					return;
+				}
+				const id = target.slice("/chat/".length, target.indexOf("?"));
+				try {
+					const prompt = await openingWithSources(id, opening, sourcesRef.current);
+					applySources([]);
+					router.push(`/chat/${id}?prompt=${encodeURIComponent(prompt)}`);
+				} catch (error) {
+					await fetch(`/api/chats/${id}?mode=preserve-graph`, { method: "DELETE" }).catch(() => {});
+					setSourceError(error instanceof Error ? error.message : "Could not save the sources.");
+					setBusy(false);
+				}
 			})
 			.catch(() => setBusy(false));
 	}, [busy, router, configured, zeroKeys, strongKeyless]);
@@ -318,6 +356,10 @@ export function NewSession({ initialConfigured, mode = "teach" }: { initialConfi
 				onChange={applyText}
 				onSend={send}
 				mode={mode}
+				sources={sources}
+				sourceError={sourceError}
+				onSources={applySources}
+				onSourceError={setSourceError}
 				picks={picks}
 				onOpenPicker={openPicker}
 				onClearPicks={() => applyPicks([])}

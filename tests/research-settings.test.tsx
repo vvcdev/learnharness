@@ -55,10 +55,9 @@ it("keyless settings keep Research interactive while search-engine setup retains
 		assert.ok(!row.textContent?.includes(reason), "search setup hint is no longer a research-disable hint");
 		act(() => { toggle.click(); });
 		assert.equal(written?.tools?.research, false, "the keyless toggle emits the same stored boolean");
-		const engine = document.querySelector<HTMLButtonElement>('[data-testid="search-engine-trigger"]')!;
-		assert.ok(engine.className.includes("cursor-not-allowed"), "search engine preference retains its own key gate");
-		act(() => { engine.click(); });
-		assert.equal(document.querySelector('[data-testid="search-engine-menu"]'), null, "keyless engine preference does not open");
+		const engine = document.querySelector('[data-testid="search-engine-trigger"]')!;
+		assert.equal(engine.textContent, "Claude Code");
+		assert.equal(document.querySelector('[data-testid="search-engine-menu"]'), null);
 		assert.ok(document.querySelector('[data-testid="search-engine-row"]')?.textContent?.includes(reason));
 	} finally {
 		act(() => { root.unmount(); });

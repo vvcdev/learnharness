@@ -45,9 +45,11 @@ export function prettyModel(id: string, qualified = false): string {
 	const { provider, id: bare } = splitQualified(id);
 	const short = bare.includes("/") ? bare.slice(bare.lastIndexOf("/") + 1) : bare;
 	const parts = short.split("-");
-	const trimmed = /^\d+$/.test(parts[parts.length - 1] ?? "") ? parts.slice(0, -1) : parts;
-	// No auto-capitalization, dashes KEPT (owner rounds 4-5, 2026-10-05):
-	// model names render exactly as their providers write them.
-	const pretty = trimmed.join("-");
+	// Date suffixes only (OpenRouter's "…-0902"): 4+ trailing digits.
+	// Short trailing digits are version pieces (claude-sonnet-5-5), not dates —
+	// stripping them turned Sonnet 5.5 into "claude-sonnet-5".
+	const trimmed = /^\d{4,}$/.test(parts[parts.length - 1] ?? "") ? parts.slice(0, -1) : parts;
+	// Anthropic writes versions as "5-5"; the chip shows "5.5".
+	const pretty = trimmed.join("-").replace(/-(\d+)-(\d+)$/, "-$1.$2");
 	return qualified && provider ? `${pretty} · ${provider}` : pretty;
 }
