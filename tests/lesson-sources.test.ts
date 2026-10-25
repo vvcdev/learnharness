@@ -22,7 +22,14 @@ describe("lesson sources", () => {
 	});
 
 	it("rejects a kind the teacher cannot read", () => {
-		assert.match(lessonSourceError("slides.pptx", 10, 0) ?? "", /PDF/);
+		assert.match(lessonSourceError("slides.pptx", 10, 0) ?? "", /PDF|text|code|data|image/);
+	});
+
+	it("accepts common text, code, and data uploads", () => {
+		assert.equal(lessonSourceError("notes.csv", 12, 0), null);
+		assert.equal(lessonSourceError("main.py", 20, 0), null);
+		assert.equal(lessonSourceError("brief.json", 8, 0), null);
+		assert.equal(lessonSourceError("page.html", 40, 0), null);
 	});
 
 	it("stores a file under the session and removes it with the session", () => {

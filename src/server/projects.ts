@@ -172,7 +172,7 @@ export function createProject(
 		const reason = lessonSourceError(file.name, file.bytes.byteLength, planned.length);
 		if (reason) return { ok: false, status: 400, error: reason };
 		const stored = storedName(file.name, used);
-		if (!stored) return { ok: false, status: 400, error: "Attach a PDF, text, Markdown, or image file." };
+		if (!stored) return { ok: false, status: 400, error: "Attach a PDF, text, Markdown, code, data, or image file." };
 		const display = file.name.split(/[/\\]/).pop() ?? stored;
 		planned.push({ name: display, stored });
 		bytesByStored.set(stored, file.bytes);
@@ -232,7 +232,7 @@ export function addProjectFiles(
 		const reason = lessonSourceError(file.name, file.bytes.byteLength, meta.files.length);
 		if (reason) return { ok: false, status: 400, error: reason };
 		const stored = storedName(file.name, used);
-		if (!stored) return { ok: false, status: 400, error: "Attach a PDF, text, Markdown, or image file." };
+		if (!stored) return { ok: false, status: 400, error: "Attach a PDF, text, Markdown, code, data, or image file." };
 		const display = file.name.split(/[/\\]/).pop() ?? stored;
 		fs.writeFileSync(path.join(filesDir(id, root), stored), file.bytes);
 		meta.files.push({ name: display, stored });

@@ -1,7 +1,66 @@
 /** Files a learner attaches to one lesson. The teacher reads the saved
- * paths with the tools it already has. Nothing here touches the graph. */
+ * paths with the tools it already has. Nothing here touches the graph.
+ * Allowlist = what read/pdf can usefully open (no Office binaries). */
 
-export const LESSON_SOURCE_EXTENSIONS = [".pdf", ".txt", ".md", ".markdown", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"] as const;
+export const LESSON_SOURCE_EXTENSIONS = [
+	// documents
+	".pdf",
+	".txt",
+	".md",
+	".markdown",
+	".rst",
+	".tex",
+	".html",
+	".htm",
+	".rtf",
+	// data
+	".csv",
+	".tsv",
+	".json",
+	".jsonl",
+	".yaml",
+	".yml",
+	".toml",
+	".xml",
+	// code / notebooks-as-text
+	".py",
+	".ipynb",
+	".js",
+	".jsx",
+	".ts",
+	".tsx",
+	".mjs",
+	".cjs",
+	".java",
+	".c",
+	".h",
+	".cpp",
+	".hpp",
+	".cc",
+	".rs",
+	".go",
+	".rb",
+	".swift",
+	".kt",
+	".kts",
+	".r",
+	".m",
+	".sql",
+	".sh",
+	".bash",
+	".zsh",
+	".css",
+	".scss",
+	".less",
+	".svg",
+	// images (read tool vision path)
+	".png",
+	".jpg",
+	".jpeg",
+	".gif",
+	".webp",
+	".bmp",
+] as const;
 
 export const LESSON_SOURCE_ACCEPT = LESSON_SOURCE_EXTENSIONS.join(",");
 
@@ -24,7 +83,9 @@ export function lessonSourceExtension(name: string): string | null {
  * many sources the lesson already holds before this one. */
 export function lessonSourceError(name: string, bytes: number, already: number): string | null {
 	if (already >= MAX_LESSON_SOURCES) return `A lesson can hold ${MAX_LESSON_SOURCES} sources.`;
-	if (!lessonSourceExtension(name)) return "Attach a PDF, text, Markdown, or image file.";
+	if (!lessonSourceExtension(name)) {
+		return "Attach a PDF, text, Markdown, code, data, or image file.";
+	}
 	if (!Number.isFinite(bytes) || bytes <= 0) return "That file is empty.";
 	if (bytes > MAX_LESSON_SOURCE_BYTES) return "Each source must be 25 MB or smaller.";
 	return null;

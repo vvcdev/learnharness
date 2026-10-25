@@ -362,7 +362,7 @@ export function ProjectPackForm({
 						))}
 					</div>
 				) : (
-					<p className="text-xs text-muted-foreground">Optional. PDFs, text, Markdown, or images.</p>
+					<p className="text-xs text-muted-foreground">Optional. PDFs, text, Markdown, code, data, or images.</p>
 				)}
 			</div>
 			{error && <p role="alert" className="text-xs text-red-400">{error}</p>}
