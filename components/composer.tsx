@@ -134,7 +134,7 @@ export function Composer({
 				placeholder={placeholder}
 				autoFocus={autoFocus}
 				rows={1}
-				className="field-sizing-content lh-input max-h-48 min-h-10 flex-1 resize-none bg-transparent px-1 py-2 outline-none placeholder:text-muted-foreground"
+				className="field-sizing-content lh-input max-h-48 min-h-10 flex-1 resize-none bg-transparent px-1 py-2.5 outline-none placeholder:text-muted-foreground"
 			/>
 			{sendButton}
 		</div>

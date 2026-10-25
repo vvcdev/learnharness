@@ -18,11 +18,10 @@
  * The practice pick flow mirrors GraphView's contract verbatim (home
  * lifts the pick set; the chip opens the overlay in select mode).
  */
-import { useCallback, useEffect, useRef, useState } from "react";
-import { ListTreeIcon, UploadIcon } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { ListTreeIcon } from "lucide-react";
 import { ChainTableOverlay } from "@/components/chain-table.tsx";
 import { GraphCostControl } from "@/components/graph-view.tsx";
-import { NotesImportErrors, useNotesImport } from "@/components/notes-import.tsx";
 import { Hint } from "@/components/ui/hint";
 import type { ChatSummary, GraphCostSummary, GraphSnapshot } from "@/src/core";
 
@@ -97,7 +96,6 @@ export function MinimalHome({
 	const [costs, setCosts] = useState<GraphCostSummary | null>(null);
 	const [chats, setChats] = useState<ChatSummary[]>([]);
 	const [chainsOpen, setChainsOpen] = useState(false);
-	const fileInputRef = useRef<HTMLInputElement>(null);
 
 	const readState = useCallback(() => {
 		fetch("/api/graph")
@@ -123,10 +121,6 @@ export function MinimalHome({
 		if (chainSelectOpen) setChainsOpen(true);
 	}, [chainSelectOpen]);
 
-	// Refetch even after incomplete imports: earlier writes and spend remain.
-	const notesImport = useNotesImport({ onFinish: readState });
-	const { importing, onImportFiles } = notesImport;
-
 	const teachSessions = chats.filter((c) => c.kind === "teach").length;
 	const practiceSessions = chats.filter((c) => c.kind === "practice").length;
 
@@ -143,15 +137,9 @@ export function MinimalHome({
 				/>
 			</div>
 
-			{/* The chrome survivors in the graph view's own places (owner,
-			    2026-10-06): the top-right column — actions row (Chains +
-			    Import, the same 36px band pills), the cost pill BELOW it.
-			    The column carries lh-no-drag EXACTLY like the graph
-			    chrome's (the DOM-order mask law): without it the drag band
-			    swallows the clicks in Electron — the buttons dragged the
-			    window instead. Node search and the render-settings gear are
-			    canvas things and stay gone; Import ALWAYS renders (the
-			    entry law). */}
+			{/* Top-right chrome: Chains + cost. Lesson files attach via the
+			    composer paperclip. lh-no-drag keeps Electron from treating
+			    clicks as window drags. */}
 			<div className="lh-no-drag lh-wco-floating absolute right-2 top-2 z-10 flex max-w-[calc(100%-5.5rem)] flex-col items-end gap-2">
 				<div className="flex min-w-0 items-start gap-2">
 					<div className="graph-chrome-fade-in shrink-0 rounded-xl border bg-card/85 px-1 py-[3px] shadow-lg backdrop-blur">
@@ -167,33 +155,7 @@ export function MinimalHome({
 							</button>
 						</Hint>
 					</div>
-					<div className="shrink-0 rounded-xl border bg-card/85 px-1 py-[3px] shadow-lg backdrop-blur">
-						<Hint label="Import notes into the graph" side="bottom">
-							<label
-								data-testid="import-notes"
-								aria-disabled={importing || undefined}
-								className={`flex h-7 cursor-pointer items-center gap-1.5 rounded-lg px-2.5 text-xs text-muted-foreground transition-colors hover:bg-accent ${importing ? "pointer-events-none opacity-50" : ""}`}
-							>
-								<input
-									ref={fileInputRef}
-									type="file"
-									multiple
-									accept=".md,.markdown,.txt,text/plain,text/markdown"
-									disabled={importing}
-									className="sr-only"
-									tabIndex={-1}
-									onChange={(e) => {
-										onImportFiles(e.target.files);
-										e.target.value = "";
-									}}
-								/>
-								<UploadIcon className="size-3" />
-								{importing ? "Importing…" : "Import notes…"}
-							</label>
-						</Hint>
-					</div>
 				</div>
-				<NotesImportErrors errors={notesImport.errors} />
 				{costs && costs.runs.length > 0 && <GraphCostControl costs={costs} />}
 			</div>
 

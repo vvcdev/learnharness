@@ -2,7 +2,7 @@
 
 import { useRef, type ReactNode } from "react";
 import { PaperclipIcon, XIcon } from "lucide-react";
-import { appendLessonSources, LESSON_SOURCE_ACCEPT, lessonSourceError } from "@/src/core";
+import { appendProjectContext, LESSON_SOURCE_ACCEPT, lessonSourceError } from "@/src/core";
 
 export async function uploadLessonSources(chatId: string, files: readonly File[]): Promise<string[]> {
 	const body = new FormData();
@@ -13,11 +13,34 @@ export async function uploadLessonSources(chatId: string, files: readonly File[]
 	return payload.paths;
 }
 
-/** The text the new lesson should open with, after its files are stored. */
-export async function openingWithSources(chatId: string, text: string, files: readonly File[]): Promise<string> {
-	const opening = text.trim() || (files.length > 0 ? "Teach me from these sources." : "");
-	if (files.length === 0) return opening;
-	return appendLessonSources(opening, await uploadLessonSources(chatId, files));
+/** Apply the active (or named) project pack into the session, then attach extra files. */
+export async function openingWithSources(
+	chatId: string,
+	text: string,
+	files: readonly File[],
+	options: { useActiveProject?: boolean; projectId?: string } = { useActiveProject: true },
+): Promise<string> {
+	const paths: string[] = [];
+	let instructions = "";
+	if (options.projectId || options.useActiveProject) {
+		const response = await fetch(`/api/chats/${chatId}/project`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify(options.projectId ? { projectId: options.projectId } : {}),
+		});
+		if (response.ok) {
+			const payload = (await response.json()) as { paths?: string[]; instructions?: string };
+			paths.push(...(payload.paths ?? []));
+			instructions = payload.instructions ?? "";
+		} else if (response.status !== 404 || options.projectId) {
+			const payload = (await response.json().catch(() => ({}))) as { error?: string };
+			throw new Error(payload.error || "Could not load the project.");
+		}
+	}
+	if (files.length > 0) paths.push(...await uploadLessonSources(chatId, files));
+	const opening = appendProjectContext(text, instructions, paths);
+	if (!opening) throw new Error("Add a topic, attach files, or choose a project.");
+	return opening;
 }
 
 export function takeSourceFiles(current: readonly File[], incoming: FileList | null): { files: File[]; error: string | null } {
@@ -86,7 +109,7 @@ export function SourceAttachButton({
 				data-testid="attach-sources"
 				disabled={disabled}
 				onClick={() => inputRef.current?.click()}
-				className="mb-0.5 flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-40"
+				className="flex size-10 shrink-0 items-center justify-center rounded-[10px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-40"
 			>
 				<PaperclipIcon className="size-4" />
 			</button>

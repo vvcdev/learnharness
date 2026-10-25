@@ -13,7 +13,8 @@ import { StatsBar } from "@/components/stats-bar";
 import { ChainTableOverlay } from "@/components/chain-table.tsx";
 import { ComposerActions, NodePickerControl } from "@/components/composer-actions";
 import { openingWithSources, SourcePicker } from "@/components/source-attach";
-import type { ChatSettings, GraphSnapshot } from "@/src/core";
+import { ProjectPackControl } from "@/components/project-pack";
+import type { ChatSettings, GraphSnapshot, ProjectSummary } from "@/src/core";
 
 /** The draft's pick set (owner round 10): the SAME shape the home pick
  *  bar lifts — resolved nodes as the learner SAW them at pick time. */
@@ -88,6 +89,8 @@ export function DraftShell({
 	sourceError = null,
 	onSources,
 	onSourceError,
+	activeProject = null,
+	onActiveProject,
 }: {
 	busy: boolean;
 	text: string;
@@ -97,7 +100,7 @@ export function DraftShell({
 	 *  created session carries kind:"practice" and the copy changes
 	 *  (the practice agent opens; no probing). */
 	mode?: "teach" | "practice";
-	/** The first-run CTA (fix wave chunk B): the same "Set up your models"
+	/** The first-run CTA (setup wave chunk B): the same "Set up your models"
 	 *  affordance home carries, rendered above the draft shell — passed by
 	 *  NewSession, which owns the configured state and the SetupDialog. */
 	setupCta?: ReactNode;
@@ -118,6 +121,8 @@ export function DraftShell({
 	sourceError?: string | null;
 	onSources?: (files: File[]) => void;
 	onSourceError?: (error: string | null) => void;
+	activeProject?: ProjectSummary | null;
+	onActiveProject?: (project: ProjectSummary | null) => void;
 }) {
 	// Voice dictation (STT wave, 2026-09-17): finals append at the end of the
 	// draft text (via the parent's onChange — the truth lives there); the
@@ -135,7 +140,7 @@ export function DraftShell({
 	// round, owner 2026-10-01): the spoken text is deferred in the run's
 	// buffer — Enter must reach the finish-first send, not be gated out by
 	// an empty textarea. Nothing said → the send no-ops.
-	const canSend = text.trim().length > 0 || dictation.active || sources.length > 0;
+	const canSend = text.trim().length > 0 || dictation.active || sources.length > 0 || !!activeProject;
 	/* FINISH DICTATION FIRST (owner, 2026-10-01): stop the run, let the
 	 * last finals land through onChange, THEN call the parent's send —
 	 * which reads its REF mirror, so the post-await timing of React's
@@ -229,6 +234,7 @@ export function DraftShell({
 								</div>
 								<StatsBar
 									turns={[]}
+									leadingSlot={<ProjectPackControl onActiveChange={onActiveProject} />}
 								/>
 							</div>
 						</div>
@@ -305,14 +311,21 @@ export function NewSession({ initialConfigured, mode = "teach" }: { initialConfi
 	const [sources, setSources] = useState<File[]>([]);
 	const sourcesRef = useRef<File[]>([]);
 	const [sourceError, setSourceError] = useState<string | null>(null);
+	const [activeProject, setActiveProject] = useState<ProjectSummary | null>(null);
+	const activeProjectRef = useRef<ProjectSummary | null>(null);
 	const applySources = (next: File[]) => {
 		sourcesRef.current = next;
 		setSources(next);
 	};
+	const onActiveProject = useCallback((project: ProjectSummary | null) => {
+		activeProjectRef.current = project;
+		setActiveProject(project);
+	}, []);
 
 	const send = useCallback(() => {
 		const draft = textRef.current.trim();
-		if ((!draft && sourcesRef.current.length === 0) || busy) return;
+		const hasContext = sourcesRef.current.length > 0 || !!activeProjectRef.current;
+		if ((!draft && !hasContext) || busy) return;
 		if (!configured) {
 			setSetupOpen(true);
 			return;
@@ -360,6 +373,8 @@ export function NewSession({ initialConfigured, mode = "teach" }: { initialConfi
 				sourceError={sourceError}
 				onSources={applySources}
 				onSourceError={setSourceError}
+				activeProject={activeProject}
+				onActiveProject={onActiveProject}
 				picks={picks}
 				onOpenPicker={openPicker}
 				onClearPicks={() => applyPicks([])}

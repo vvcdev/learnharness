@@ -45,4 +45,16 @@ export * from "./observability.ts";
 export * from "./model-catalog.ts";
 export { claudeCodeStatus } from "../agent/claude-code-auth.ts";
 export { saveLessonSources, removeSessionSources } from "./session-sources.ts";
+export {
+	listProjects,
+	getProject,
+	getActiveProject,
+	createProject,
+	updateProjectMeta,
+	addProjectFiles,
+	removeProjectFile,
+	deleteProject,
+	setActiveProject,
+	applyProjectToSession,
+} from "./projects.ts";
 export { sessionCost } from "./pricing.ts";

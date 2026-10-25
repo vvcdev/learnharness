@@ -64,14 +64,12 @@
  */
 
 import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { NotesImportErrors, useNotesImport } from "@/components/notes-import.tsx";
 import Link from "next/link";
-import { FileTextIcon, ListTreeIcon, Loader2Icon, SearchIcon, SettingsIcon, UploadIcon, WaypointsIcon } from "lucide-react";
+import { FileTextIcon, ListTreeIcon, Loader2Icon, SearchIcon, SettingsIcon, WaypointsIcon } from "lucide-react";
 import { incrementalLayout, propositionSessionHref, type GraphCostSummary, type GraphNode, type GraphSnapshot } from "@/src/core";
 import { planCostLabel } from "@/components/usage-format";
 import { GraphCanvasRenderer, type GraphRenderSettings } from "./graph-canvas.ts";
 import { usePopoverDismiss } from "@/components/popover-dismiss";
-import { useActivity } from "@/components/activity-dock";
 import { useServerEvent, useServerResync } from "@/components/server-events";
 import { MenuShell } from "@/components/menu-shell.tsx";
 import { DeleteNodeDialog } from "@/components/delete-node-dialog.tsx";
@@ -829,23 +827,16 @@ function GraphSettingsControl({
 	);
 }
 
-/** The top-chrome actions row's body (empty-graph chrome wave, owner
- *  2026-09-25): Import Notes renders ALWAYS (graph enabled) — it's the
- *  one action that works on an empty graph, the entry point itself;
- *  search + settings render only when the snapshot has nodes (dead
- *  controls are lies — the honesty principle). The two gated controls
- *  fade in on their mount (graph-chrome-fade-in, globals.css — the
- *  appear-once transition as the first nodes land). Exported pure for
- *  the empty/populated SSR pins (the DeleteNodeBody pattern). */
+/** The top-chrome actions row's body: search, chains, and settings only
+ *  when the snapshot has nodes (dead controls are lies). Lesson file
+ *  attach lives on the composer paperclip, not here. Controls fade in on
+ *  mount (graph-chrome-fade-in). Exported pure for SSR pins. */
 export function GraphChromeRow({
 	isEmpty,
 	query,
 	onQuery,
 	noMatch,
-	importing,
 	searchInputRef,
-	fileInputRef,
-	onImportFiles,
 	settings,
 	changeSettings,
 	onOpenChains,
@@ -856,104 +847,61 @@ export function GraphChromeRow({
 	/** The search panel's "No matching nodes." note (computed by the
 	 *  wrapper — it owns visibleIds + the snapshot). */
 	noMatch: boolean;
-	importing: boolean;
 	searchInputRef: React.RefObject<HTMLInputElement | null>;
-	fileInputRef: React.RefObject<HTMLInputElement | null>;
-	onImportFiles: (files: FileList | null) => void;
 	settings: GraphRenderSettings;
 	changeSettings: (update: (cur: RenderSettings) => RenderSettings) => void;
 	/** Opens the chain table overlay (the chains-overlay plan,
 	 *  2026-09-29). */
 	onOpenChains: () => void;
 }) {
+	if (isEmpty) return null;
 	return (
 		<>
-			{!isEmpty && (
-				<div className="graph-chrome-fade-in w-56 min-w-0 shrink rounded-xl border bg-card/85 px-1 py-[3px] shadow-lg backdrop-blur">
-					<Hint
-						// ⌘F focuses node search (surface-scoped registry action).
-						label="Search nodes"
-						action="find"
-						side="bottom"
-					>
-					<div className="relative">
-						<SearchIcon className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-						<input
-							ref={searchInputRef}
-							value={query}
-							onChange={(e) => onQuery(e.target.value)}
-							placeholder="Search nodes…"
-							aria-label="Search nodes"
-							spellCheck={false}
-							className="h-7 w-full rounded-lg border bg-background pl-8 text-xs outline-none placeholder:text-muted-foreground focus:border-ring"
-						/>
-					</div>
-					</Hint>
-					{noMatch && (
-						<div className="px-1.5 pt-1 text-[11px] text-muted-foreground">No matching nodes.</div>
-					)}
-				</div>
-			)}
-			{/* The chain table (chains overlay, owner plan 2026-09-29). Own
-			    container (36px band), between the search and Import. */}
-			{!isEmpty && (
-				<div className="graph-chrome-fade-in shrink-0 rounded-xl border bg-card/85 px-1 py-[3px] shadow-lg backdrop-blur">
-					<Hint label="Every reasoning chain" side="bottom">
-						<button
-							type="button"
-							onClick={onOpenChains}
-							data-testid="open-chain-table"
-							className="flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-xs text-muted-foreground transition-colors hover:bg-accent"
-						>
-							<ListTreeIcon className="size-3" />
-							Chains
-						</button>
-					</Hint>
-				</div>
-			)}
-			{/* Import notes — its own container (36px, header band); ALWAYS
-			    rendered (the empty-graph ruling above — the entry point). */}
-			<div className="shrink-0 rounded-xl border bg-card/85 px-1 py-[3px] shadow-lg backdrop-blur">
+			<div className="graph-chrome-fade-in w-56 min-w-0 shrink rounded-xl border bg-card/85 px-1 py-[3px] shadow-lg backdrop-blur">
 				<Hint
-					// The one button whose action isn't obvious from its label:
-					// the missing fact is where imports go (owner, subtlety
-					// round 2026-09-25).
-					label="Import notes into the graph"
+					// ⌘F focuses node search (surface-scoped registry action).
+					label="Search nodes"
+					action="find"
 					side="bottom"
 				>
-					<label
-						data-testid="import-notes"
-						aria-disabled={importing || undefined}
-						className={`flex h-7 cursor-pointer items-center gap-1.5 rounded-lg px-2.5 text-xs text-muted-foreground transition-colors hover:bg-accent ${importing ? "pointer-events-none opacity-50" : ""}`}
+				<div className="relative">
+					<SearchIcon className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+					<input
+						ref={searchInputRef}
+						value={query}
+						onChange={(e) => onQuery(e.target.value)}
+						placeholder="Search nodes…"
+						aria-label="Search nodes"
+						spellCheck={false}
+						className="h-7 w-full rounded-lg border bg-background pl-8 text-xs outline-none placeholder:text-muted-foreground focus:border-ring"
+					/>
+				</div>
+				</Hint>
+				{noMatch && (
+					<div className="px-1.5 pt-1 text-[11px] text-muted-foreground">No matching nodes.</div>
+				)}
+			</div>
+			<div className="graph-chrome-fade-in shrink-0 rounded-xl border bg-card/85 px-1 py-[3px] shadow-lg backdrop-blur">
+				<Hint label="Every reasoning chain" side="bottom">
+					<button
+						type="button"
+						onClick={onOpenChains}
+						data-testid="open-chain-table"
+						className="flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-xs text-muted-foreground transition-colors hover:bg-accent"
 					>
-						<input
-							ref={fileInputRef}
-							type="file"
-							multiple
-							accept=".md,.markdown,.txt,text/plain,text/markdown"
-							disabled={importing}
-							className="sr-only"
-							tabIndex={-1}
-							onChange={(e) => {
-								onImportFiles(e.target.files);
-								e.target.value = ""; // allow re-picking the same file
-							}}
-						/>
-						<UploadIcon className="size-3" />
-						{importing ? "Importing…" : "Import notes…"}
-					</label>
+						<ListTreeIcon className="size-3" />
+						Chains
+					</button>
 				</Hint>
 			</div>
-			{!isEmpty && (
-				// Rendering settings — own component; the gear toggles it. The
-				// gear sits at the far right (owner, round 3) so its panel drops
-				// at the very right edge, over less of the graph. The fade wrapper
-				// is a plain shrink-0 flex child — the panel itself positions
-				// within GraphSettingsControl's own relative root, unaffected.
-				<div className="graph-chrome-fade-in shrink-0">
-					<GraphSettingsControl settings={settings} changeSettings={changeSettings} />
-				</div>
-			)}
+			{/* Rendering settings — own component; the gear toggles it. The
+			    gear sits at the far right (owner, round 3) so its panel drops
+			    at the very right edge, over less of the graph. The fade wrapper
+			    is a plain shrink-0 flex child — the panel itself positions
+			    within GraphSettingsControl's own relative root, unaffected. */}
+			<div className="graph-chrome-fade-in shrink-0">
+				<GraphSettingsControl settings={settings} changeSettings={changeSettings} />
+			</div>
 		</>
 	);
 }
@@ -1095,24 +1043,6 @@ export function GraphView({
 			cancelled = true;
 		};
 	}, [refreshTick]);
-
-	// Notes import (the format-agnostic front door): file picker → POST
-	// /api/graph/import; the runs surface in the status chips below, and the
-	// graph refetches when they finish (the runs-empty transition).
-	const fileInputRef = useRef<HTMLInputElement>(null);
-	// The dock's start-site nudge (accuracy wave, 2026-09-19): the import
-	// POST awaits the WHOLE pipeline server-side, so the run registers long
-	// before the response — nudge at click and again at +600ms to catch the
-	// start; from its first setPhase the run announces itself on the events
-	// channel (S5), and the dock rides those announcements thereafter.
-	const refreshActivity = useActivity().refresh;
-	const notesImport = useNotesImport({
-		onStart: () => {
-			refreshActivity();
-			setTimeout(() => refreshActivity(), 600);
-		},
-	});
-	const { importing, onImportFiles } = notesImport;
 
 	// Background pipeline status: read /api/graph/status; whenever a run
 	// LEAVES the feed (finished / aborted / failed), refetch the graph.
@@ -1606,17 +1536,13 @@ export function GraphView({
 					query={query}
 					onQuery={setQuery}
 					noMatch={snapshot !== null && visibleIds.size === 0 && query.trim() !== ""}
-					importing={importing}
 					searchInputRef={searchInputRef}
-					fileInputRef={fileInputRef}
-					onImportFiles={onImportFiles}
 					settings={settings}
 					changeSettings={changeSettings}
 					onOpenChains={() => setChainsOpen(true)}
 				/>
 			</div>
 
-			<NotesImportErrors errors={notesImport.errors} />
 			{/* Top-right tail (owner, 2026-09-20): the pipeline cost number —
 			    just a number, hover-highlighted, dropdown breakdown — then
 			    the running-pipeline pills under it. Lives BELOW the actions

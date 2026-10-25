@@ -8,12 +8,13 @@ import { MinimalHome } from "@/components/minimal-home";
 import { SetupDialog } from "@/components/setup-dialog";
 import { ComposerActions, NodePickerControl } from "@/components/composer-actions";
 import { openingWithSources, SourcePicker } from "@/components/source-attach";
+import { ProjectPackControl } from "@/components/project-pack";
 import { useStrongKeyless, useZeroKeys, ZeroKeysPill } from "@/components/setup-cta";
 import { joinDictation, useDictation } from "@/components/dictation";
 import { useFieldCycle } from "@/components/field-cycle";
 import { SidebarToggle } from "@/components/sidebar";
 import { StatsBar } from "@/components/stats-bar";
-import type { TurnUsage } from "@/src/core";
+import type { ProjectSummary, TurnUsage } from "@/src/core";
 
 /**
  * Home — the knowledge graph is the main view, full-bleed edge to edge
@@ -41,10 +42,16 @@ export function Home({
 	const [sources, setSources] = useState<File[]>([]);
 	const sourcesRef = useRef<File[]>([]);
 	const [sourceError, setSourceError] = useState<string | null>(null);
+	const [activeProject, setActiveProject] = useState<ProjectSummary | null>(null);
+	const activeProjectRef = useRef<ProjectSummary | null>(null);
 	const applySources = (next: File[]) => {
 		sourcesRef.current = next;
 		setSources(next);
 	};
+	const onActiveProject = useCallback((project: ProjectSummary | null) => {
+		activeProjectRef.current = project;
+		setActiveProject(project);
+	}, []);
 	// First-run gate (model-slots wave, owner 2026-09-20): chats cannot
 	// start until the user has picked all three slots — no defaults for
 	// 33 providers. The dock shows the CTA while unconfigured; submitting
@@ -120,7 +127,8 @@ export function Home({
 	};
 	const begin = async () => {
 		const t = topicRef.current.trim();
-		const opening = t || (sourcesRef.current.length > 0 ? "Teach me from these sources." : "");
+		const hasContext = sourcesRef.current.length > 0 || !!activeProjectRef.current;
+		const opening = t || (hasContext ? "Teach me from these sources." : "");
 		if (!opening || busy) return;
 		// Unconfigured: the send INTERCEPTS into the setup flow (the draft
 		// stays in the textarea; the learner sends it after Save).
@@ -298,14 +306,14 @@ export function Home({
 										placeholder={mode === "practice" ? "What do you want to practice?" : "What do you want to learn?"}
 										autoFocus
 										rows={1}
-										className="field-sizing-content lh-input max-h-48 min-h-10 flex-1 resize-none bg-transparent px-1 py-2 outline-none placeholder:text-muted-foreground"
+										className="field-sizing-content lh-input max-h-48 min-h-10 flex-1 resize-none bg-transparent px-1 py-2.5 outline-none placeholder:text-muted-foreground"
 									/>
-									<button
-										type="submit"
-										aria-label="Start session"
-										disabled={(!topic.trim() && sources.length === 0 && !dictation.active) || busy}
-										className="flex size-10 shrink-0 items-center justify-center rounded-[10px] bg-primary text-primary-foreground transition-colors hover:opacity-90 disabled:opacity-40"
-									>
+					<button
+						type="submit"
+						aria-label="Start session"
+						disabled={(!topic.trim() && sources.length === 0 && !activeProject && !dictation.active) || busy}
+						className="flex size-10 shrink-0 items-center justify-center rounded-[10px] bg-primary text-primary-foreground transition-colors hover:opacity-90 disabled:opacity-40"
+					>
 										<CornerDownLeftIcon className="size-5" />
 									</button>
 								</div>
@@ -319,24 +327,27 @@ export function Home({
 					<StatsBar
 						turns={[] as TurnUsage[]}
 						leadingSlot={
-							<div className="flex items-center gap-0.5 rounded-md border border-border/60 bg-background p-0.5" data-testid="home-mode-switch">
-								{(["teach", "practice"] as const).map((m) => (
-									<button
-										key={m}
-										type="button"
-										data-testid={`home-mode-${m}`}
-										onClick={() => setMode(m)}
-										className={
-											"flex items-center gap-1 rounded-sm px-2 py-0.5 text-[11px] uppercase tracking-wider transition-colors " +
-											(mode === m
-												? "bg-accent text-foreground"
-												: "text-muted-foreground hover:text-foreground")
-										}
-									>
-										{m === "practice" ? <DumbbellIcon aria-hidden="true" className="size-3" /> : null}
-										{m === "teach" ? "Teach" : "Practice"}
-									</button>
-								))}
+							<div className="flex items-center gap-1.5">
+								<div className="flex items-center gap-0.5 rounded-md border border-border/60 bg-background p-0.5" data-testid="home-mode-switch">
+									{(["teach", "practice"] as const).map((m) => (
+										<button
+											key={m}
+											type="button"
+											data-testid={`home-mode-${m}`}
+											onClick={() => setMode(m)}
+											className={
+												"flex items-center gap-1 rounded-sm px-2 py-0.5 text-[11px] uppercase tracking-wider transition-colors " +
+												(mode === m
+													? "bg-accent text-foreground"
+													: "text-muted-foreground hover:text-foreground")
+											}
+										>
+											{m === "practice" ? <DumbbellIcon aria-hidden="true" className="size-3" /> : null}
+											{m === "teach" ? "Teach" : "Practice"}
+										</button>
+									))}
+								</div>
+								<ProjectPackControl onActiveChange={onActiveProject} />
 							</div>
 						}
 					/>
