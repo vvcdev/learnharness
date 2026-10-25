@@ -706,6 +706,21 @@ function SessionsSidebar() {
 						Practice
 						<span className="sr-only">create a new practice session</span>
 					</button>
+					<button
+						type="button"
+						data-testid="projects-entry"
+						onClick={() => router.push("/projects")}
+						className={cn(
+							"flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-xs uppercase tracking-wider transition-colors hover:bg-accent hover:text-foreground",
+							pathname === "/projects" || pathname.startsWith("/projects/")
+								? "bg-accent text-foreground"
+								: "text-muted-foreground",
+						)}
+					>
+						<FolderIcon className="size-3" />
+						Projects
+						<span className="sr-only">manage saved project packs</span>
+					</button>
 				</div>
 
 				<div className="mx-3 mb-2 flex items-center gap-2">
@@ -835,22 +850,8 @@ function SessionsSidebar() {
 					    learner opted out (no ambient signal, user decision). */}
 					<ActivitySection />
 
-					{/* Projects + Settings — quiet bottom rows. */}
-					<div className="flex flex-col gap-0.5 px-3 pb-3 pt-1">
-						<button
-							type="button"
-							onClick={() => router.push("/projects")}
-							data-testid="projects-entry"
-							className={cn(
-								"flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs uppercase tracking-wider transition-colors hover:bg-accent hover:text-foreground",
-								pathname === "/projects" || pathname.startsWith("/projects/")
-									? "bg-accent text-foreground"
-									: "text-muted-foreground",
-							)}
-						>
-							<FolderIcon className="size-3" />
-							Projects
-						</button>
+					{/* Settings entry — quiet, bottom-pinned. */}
+					<div className="px-3 pb-3 pt-1">
 						<Hint label="Settings" action="open-settings" side="right">
 							<button
 								type="button"

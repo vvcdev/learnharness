@@ -38,6 +38,8 @@ export function ProjectsPage() {
 			setSelectedId((cur) => {
 				if (cur === "new") return cur;
 				if (cur && next.projects.some((p) => p.id === cur)) return cur;
+				// Empty list → open the create form so the page is never a blank wall.
+				if (next.projects.length === 0) return "new";
 				return next.activeId ?? next.projects[0]?.id ?? null;
 			});
 		});
@@ -118,7 +120,13 @@ export function ProjectsPage() {
 						</div>
 						<div className="min-h-0 flex-1 overflow-y-auto p-1">
 							{projects.length === 0 && selectedId !== "new" && (
-								<p className="px-2 py-3 text-xs text-muted-foreground">No projects yet.</p>
+								<button
+									type="button"
+									onClick={() => setSelectedId("new")}
+									className="w-full rounded-xl px-2.5 py-3 text-left text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+								>
+									No projects yet — create one
+								</button>
 							)}
 							{projects.map((project) => {
 								const selected = selectedId === project.id;
