@@ -18,10 +18,10 @@
  *   light gutter) can divide by it.
  *
  *   window.lh.onUpdateStatus(cb) / window.lh.installUpdate() — the
- *   auto-update channel (Wave C, 2026-10-10): "lh:update-status" pushes
- *   {status:"downloaded", version} once an update is staged; installUpdate
- *   asks main to kill the server and quit-and-install. Browser builds:
- *   both absent, the banner never renders.
+ *   upstream-notify channel (fork): "lh:update-status" pushes
+ *   {status:"available", version} when a newer public release exists;
+ *   installUpdate is a no-op (stock quit-and-install would wipe the fork).
+ *   Browser builds: both absent, the banner never renders.
  *
  * Channel names are mirrored in electron/main.cjs — keep them in sync.
  */

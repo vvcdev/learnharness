@@ -407,33 +407,18 @@ function createWindow(url) {
  * lights, is impossible without rebuilding the window). */
 const ZOOM_LADDER = [0.75, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2];
 
-/* ── Auto-update (Wave C, owner 2026-10-10: silent download + restart ─────
- * banner; checks at startup + every 24h) ─────────────────────────────────
- *
- * Feed: GitHub Releases (electron-builder.yml publish → app-update.yml,
- * baked + signed into the bundle). macOS needs the app signed (it is —
- * Developer ID) and updates ride the zip target (Squirrel.Mac); blockmaps
- * give differential downloads for free. Windows uses NSIS; Linux uses
- * AppImage or DebUpdater (6.8.9 supports deb; installation can request
- * administrator permission via the package manager — owner 2026-10-11).
+/* ── Upstream notify (fork): check the public LearnHarness feed, NEVER
+ * download or install it into this .app. Stock quit-and-install would
+ * replace the fork build and wipe Projects / custom teacher wiring.
+ * Real code updates land via `git merge upstream/main` + a local rebuild.
  *
  * Hard rules:
- *  - DEV NEVER UPDATES: !app.isPackaged skips the updater entirely — the
- *    dev world runs `next dev` and has no signed bundle.
- *  - THE UPDATER CAN NEVER TAKE THE APP DOWN: every event and check is
- *    caught and logged (feed down, disk full, bad signature — all just
- *    log lines; the app keeps working, update or no update).
- *  - LH_UPDATE_FEED (env): overrides the baked GitHub feed with a generic
- *    local server — the pre-release verification drill (serve
- *    latest-mac.yml + zip + blockmap from any localhost HTTP dir and
- *    watch a real installed copy find/download/restart). Test-only seam.
- *
- * Install path: the downloaded update applies on quit (autoInstallOnAppQuit
- * — Squirrel.Mac stages natively and swaps on relaunch). The renderer
- * banner asks for an immediate restart via "lh:update-install"; we kill
- * the child server FIRST — deterministic ordering: the server lives
- * inside the .app bundle Squirrel is about to replace (extraResources),
- * and before-quit alone would race the swap. */
+ *  - DEV NEVER CHECKS: !app.isPackaged skips the updater entirely.
+ *  - NEVER DOWNLOAD / NEVER INSTALL: autoDownload and autoInstallOnAppQuit
+ *    stay false; lh:update-install is a no-op.
+ *  - NOTIFY ONLY: update-available → banner {status:"available", version}.
+ *  - THE CHECK CAN NEVER TAKE THE APP DOWN: failures are log lines.
+ *  - LH_UPDATE_FEED (env): test-only generic feed override. */
 const UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
 let autoUpdater = null; // electron-updater's, packaged builds only
 
@@ -452,11 +437,26 @@ function checkForUpdates({ manual = false } = {}) {
 	autoUpdater
 		.checkForUpdates()
 		.then((result) => {
-			// The download itself is silent (autoDownload); the banner fires on
-			// update-downloaded. Manual checks additionally answer directly.
+			const version = result?.updateInfo?.version ?? null;
+			const current = app.getVersion();
+			// Newer upstream → banner (also fired from update-available).
+			if (version && version !== current) {
+				broadcastUpdateStatus({ status: "available", version });
+			}
 			if (!manual) return;
-			const version = result?.updateInfo?.version;
-			if (!version) dialog.showMessageBox({ type: "info", message: "You're up to date.", detail: `LearnHarness ${app.getVersion()} is the latest version.` });
+			if (!version || version === current) {
+				dialog.showMessageBox({
+					type: "info",
+					message: "No upstream release to merge.",
+					detail: `This fork is LearnHarness ${current}. Updates come from merging upstream, not from Restart.`,
+				});
+			} else {
+				dialog.showMessageBox({
+					type: "info",
+					message: `Upstream LearnHarness ${version} is out.`,
+					detail: "This app will not install it (that would wipe your fork). Merge upstream into the repo and rebuild when you're ready.",
+				});
+			}
 		})
 		.catch((err) => {
 			log(`update check failed: ${err?.message ?? err}`);
@@ -465,13 +465,13 @@ function checkForUpdates({ manual = false } = {}) {
 }
 
 function installUpdateNow() {
-	// Kill the server BEFORE the quit-and-install (see block comment).
-	try {
-		killServer();
-	} catch {
-		/* already dead */
-	}
-	autoUpdater?.quitAndInstall();
+	// Fork: never quit-and-install a stock feed build.
+	log("update install ignored — fork updates via git merge + rebuild, not Restart");
+	dialog.showMessageBox({
+		type: "info",
+		message: "This fork does not install stock updates.",
+		detail: "Merge upstream into your learner-app repo and rebuild the Desktop app instead. Restart here would replace your custom build.",
+	});
 }
 
 function setupAutoUpdater() {
@@ -490,8 +490,8 @@ function setupAutoUpdater() {
 		autoUpdater.setFeedURL({ provider: "generic", url: feed });
 		log(`auto-update: LH_UPDATE_FEED override → ${feed}`);
 	}
-	autoUpdater.autoDownload = true;
-	autoUpdater.autoInstallOnAppQuit = true;
+	autoUpdater.autoDownload = false;
+	autoUpdater.autoInstallOnAppQuit = false;
 	// Route every updater log line through the shell's own log (userData/
 	// logs/main.log) — feed failures must be diagnosable after the fact.
 	autoUpdater.logger = {
@@ -500,9 +500,15 @@ function setupAutoUpdater() {
 		debug: (m) => {}, // too chatty for the persistent log
 		error: (m) => log(`updater error: ${m}`),
 	};
+	autoUpdater.on("update-available", (info) => {
+		log(`upstream available: ${info?.version} — notify only (no download)`);
+		broadcastUpdateStatus({ status: "available", version: info?.version ?? null });
+	});
 	autoUpdater.on("update-downloaded", (info) => {
-		log(`update downloaded: ${info?.version} — banner shown`);
-		broadcastUpdateStatus({ status: "downloaded", version: info?.version ?? null });
+		// Should never fire with autoDownload false; if a prior build staged
+		// a zip, still refuse to treat it as installable.
+		log(`update download ignored: ${info?.version}`);
+		broadcastUpdateStatus({ status: "available", version: info?.version ?? null });
 	});
 	autoUpdater.on("error", (err) => log(`updater error: ${err?.message ?? err}`));
 }
@@ -675,8 +681,8 @@ async function main() {
 	});
 	createWindow(url);
 	log(`window open: ${url}`);
-	// First update check AFTER the window exists (the downloaded-banner
-	// push needs a listener); dev builds no-op (no autoUpdater).
+	// First upstream check AFTER the window exists (the notify banner
+	// needs a listener); never downloads. Dev builds no-op (no autoUpdater).
 	if (autoUpdater) {
 		checkForUpdates();
 		setInterval(() => checkForUpdates(), UPDATE_CHECK_INTERVAL_MS);

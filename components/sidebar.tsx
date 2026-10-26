@@ -67,8 +67,9 @@ declare global {
 			/** The zoom truth (owner round 7): subscribes to "lh:zoom" pushes; returns unsubscribe. */
 			onZoom?: (cb: (factor: number) => void) => () => void;
 			getZoom?: () => Promise<number>;
-			/** Auto-update channel (Wave C, 2026-10-10): "lh:update-status" pushes once a staged update exists. */
+			/** Upstream-notify (fork): "lh:update-status" pushes when a newer public release exists — never auto-installs. */
 			onUpdateStatus?: (cb: (status: { status: string; version: string | null }) => void) => () => void;
+			/** No-op on this fork (stock install would wipe custom builds). */
 			installUpdate?: () => void;
 		};
 	}
