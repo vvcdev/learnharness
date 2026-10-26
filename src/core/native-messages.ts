@@ -42,6 +42,8 @@ import {
 	NEXT_PROBLEM_TEXT,
 	SPOKEN_THINKING_LABEL,
 	THINKING_LABEL,
+	voiceMessageContent,
+	type UserVoiceInput,
 } from "./contracts/chat.ts";
 import { compactAnswerForModel, type QuestionAnswerData } from "./question-core.ts";
 import { activeCompactionOf, keptIndexFor } from "./compaction.ts";
@@ -110,12 +112,18 @@ export function newMessageId(): string {
 //     core/input-events.ts; steers in core/contracts/jobs.ts) ─────────────────
 
 /** A learner-authored user message (text input, verdict note). */
-export function newUserMessage(text: string): LhMessage & UserMessage {
+/** A user message's voice metadata (voice-everywhere wave, owner
+ *  2026-10-25): the recorded length for the "Voice message · 0:41"
+ *  bubble. The transcript lives only in the model content. */
+export type UserVoiceMeta = { voice?: { seconds: number } };
+
+export function newUserMessage(text: string, voice?: UserVoiceInput): LhMessage & UserMessage & UserVoiceMeta {
 	return {
 		id: newMessageId(),
 		role: "user",
-		content: text,
+		content: voiceMessageContent(text, voice),
 		timestamp: Date.now(),
+		...(voice?.spoken.trim() ? { voice: { seconds: voice.seconds } } : {}),
 	};
 }
 
@@ -124,8 +132,14 @@ export function newUserMessage(text: string): LhMessage & UserMessage {
  *  rides agent.steer(), the live stream's message events, and the settled
  *  record, so the optimistic queued indicator and the transcript card
  *  upsert by one identity. */
-export function newUserSteer(text: string, id: string): LhMessage & UserMessage {
-	return { id, role: "user", content: text, timestamp: Date.now() };
+export function newUserSteer(text: string, id: string, voice?: UserVoiceInput): LhMessage & UserMessage & UserVoiceMeta {
+	return {
+		id,
+		role: "user",
+		content: voiceMessageContent(text, voice),
+		timestamp: Date.now(),
+		...(voice?.spoken.trim() ? { voice: { seconds: voice.seconds } } : {}),
+	};
 }
 
 /** The learner's answer — the question call's tool result (fork 1).

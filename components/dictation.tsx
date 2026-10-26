@@ -350,7 +350,7 @@ export type Dictation = {
  * composer fallback; the mounted question form's claim wins while a
  * question waits.
  */
-export function useDictation({ append }: { append: (text: string) => void }): Dictation {
+export function useDictation({ append }: { append: DictationAppend }): Dictation {
 	const [phase, setPhase] = useState<DictationPhase>("idle");
 	const [error, setError] = useState<string | null>(null);
 	/** Latest RMS from the worklet — the meter samples this (dictate pattern). */

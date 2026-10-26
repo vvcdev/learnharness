@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 import { ArrowRightIcon, CornerDownLeftIcon, SquareIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { VoiceNotesBox, type VoiceNotes } from "@/components/voice-notes";
 
 /**
  * The chat composer — content row ONLY (the persistent rounded shell lives in
@@ -50,6 +51,7 @@ export function Composer({
 	nextProblem = false,
 	onNext,
 	attachments,
+	voice,
 }: {
 	busy: boolean;
 	value: string;
@@ -77,6 +79,9 @@ export function Composer({
 	onNext?: () => void;
 	/** Lesson file picker: chips above the row, paperclip in the text row. */
 	attachments?: (row: (attach: ReactNode) => ReactNode) => ReactNode;
+	/** The voice box (voice-everywhere wave, owner 2026-10-25): dictation
+	 *  becomes hidden voice notes riding the send — never text here. */
+	voice?: { value: VoiceNotes; onClear: () => void };
 }) {
 	const act = () => {
 		const action = enterAction({ busy, canSend, nextProblem });
@@ -150,6 +155,7 @@ export function Composer({
 			}}
 		>
 			{attachments ? attachments(fields) : fields()}
+			{voice && <VoiceNotesBox value={voice.value} onClear={voice.onClear} className="mt-1.5" />}
 		</form>
 	);
 }

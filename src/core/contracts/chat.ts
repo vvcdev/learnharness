@@ -207,6 +207,36 @@ export const THINKING_LABEL = "Your thinking";
  *  transcribed voice notes ride the same submission, labeled apart. */
 export const SPOKEN_THINKING_LABEL = "Spoken thinking (transcribed)";
 
+/** A chat message's spoken section (voice-everywhere wave, owner
+ *  2026-10-25): the model reads it under this label; the transcript
+ *  view hides everything from it on (the learner never sees it). */
+export const SPOKEN_MESSAGE_LABEL = "Spoken message (transcribed)";
+
+/** A message's voice part as it travels (input → record): the
+ *  transcript + its recorded length in seconds. */
+export interface UserVoiceInput {
+	spoken: string;
+	seconds: number;
+}
+
+/** Compose a user message's MODEL content: typed text, then the spoken
+ *  section. */
+export function voiceMessageContent(text: string, voice?: UserVoiceInput): string {
+	if (!voice?.spoken.trim()) return text;
+	const spoken = `${SPOKEN_MESSAGE_LABEL}:\n${voice.spoken.trim()}`;
+	return text.trim() ? `${text}\n\n${spoken}` : spoken;
+}
+
+/** The DISPLAY half of a user message's content: the typed text with the
+ *  spoken section cut off, and whether one was there. Content-derived so
+ *  it holds even where a message's extra fields don't survive transport. */
+export function splitVoiceContent(content: string): { text: string; spoken: boolean } {
+	const head = `${SPOKEN_MESSAGE_LABEL}:\n`;
+	if (content.startsWith(head)) return { text: "", spoken: true };
+	const at = content.indexOf(`\n\n${head}`);
+	return at === -1 ? { text: content, spoken: false } : { text: content.slice(0, at), spoken: true };
+}
+
 /** The conclude tool's ack — shared by the executed call (agent layer) and
  *  the dismissal-synthesized pair (input-events), so a concluded problem
  *  reads identically to the model however it concluded. Owner round 16:

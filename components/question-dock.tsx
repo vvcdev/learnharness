@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowDownIcon, ChevronRightIcon, PlayIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { finishDictation, isDictationActive, joinDictation, useDictationTarget } from "@/components/dictation";
+import { finishDictation, isDictationActive, useDictationTarget } from "@/components/dictation";
 import { useVoiceNotes, voiceText, VoiceNotesBox } from "@/components/voice-notes";
 import { useEnterSubmits } from "@/components/enter-submits";
 import { MessageResponse } from "@/components/ai-elements/message";
@@ -323,10 +323,10 @@ function QuestionDockForm({
 	 * in time — submit reads these, kept current at every write site. */
 	const thinkingTextRef = useRef("");
 	const answerTextRef = useRef("");
-	/** Spoken thinking (voice-notes wave, owner 2026-10-25): select modes'
-	 *  dictation lands here as hidden voice notes, never in the text. */
+	/** Spoken thinking (voice-notes wave, owner 2026-10-25): dictation lands
+	 *  here as hidden voice notes, never in the text — select modes' spoken
+	 *  thinking, text mode's spoken answer (voice-everywhere wave). */
 	const voice = useVoiceNotes();
-	const addVoice = voice.add;
 	// Confidence (owner, 2026-10-01): an index into CONFIDENCE_STOPS,
 	// resting at 50 — a real coin flip by definition, untouched or
 	// deliberate (the same number, the same meaning). The dock unmounts
@@ -340,22 +340,7 @@ function QuestionDockForm({
 	// is effect-scoped, so the question unmounting releases it and
 	// dictation falls back to the composer automatically.
 	useDictationTarget(
-		useCallback(
-			(t: string, seconds: number) => {
-				// Ref-first (see the refs block above): the join is computed from
-				// the mirror, then both mirrors agree with state — a submit
-				// resuming post-finish reads the tail, never a stale closure.
-				if (qd.mode === "text") {
-					const v = joinDictation(answerTextRef.current, t);
-					answerTextRef.current = v;
-					setText(v);
-				} else {
-					// Thinking is spoken into the voice box — never the text.
-					addVoice(t, seconds);
-				}
-			},
-			[qd.mode, addVoice],
-		),
+		voice.add,
 		// Released while a teach check sits unrevealed (owner 2026-10-03):
 		// the reading-thinking field owns dictated speech during the reading.
 		dictationClaim,
@@ -363,13 +348,21 @@ function QuestionDockForm({
 
 	const toggle = (idx: number) => setSel(toggleOption(selectMode, sel, idx));
 
+	/* Voice alone can answer (owner 2026-10-25): a voice note is enough —
+	 * a spoken free-text answer, or a quiz the tutor judges from speech. */
+	const hasVoice = voice.value.notes.length > 0;
 	const canSubmit =
 		qd.mode === "text"
-			? text.trim().length > 0
-			: sel.dontKnow || (sel.otherSelected && other.trim().length > 0) || sel.selected.size > 0;
+			? text.trim().length > 0 || hasVoice
+			: sel.dontKnow || (sel.otherSelected && other.trim().length > 0) || sel.selected.size > 0 || hasVoice;
+	/** The same gate off the REF mirrors — a submit resuming after
+	 *  `await finishDictation()` sees the run's notes, never a stale render. */
+	const canSubmitNow = () =>
+		canSubmit || (qd.mode === "text" ? answerTextRef.current.trim().length > 0 : false) || voice.ref.current.notes.length > 0;
 
 	const submit = () => {
-		if (!canSubmit || compactionRunning) return;
+		// A live run may BE the answer: let it finish, then gate (doSubmit).
+		if ((!canSubmit && !isDictationActive()) || compactionRunning) return;
 		/* FINISH DICTATION FIRST (owner, 2026-10-01): Enter may arrive while
 		 * a run is live with reasoning still in Deepgram's hands. Stop the
 		 * run, let the last finals land in the target field, and only then
@@ -383,7 +376,7 @@ function QuestionDockForm({
 		void finishDictation().then(doSubmit);
 	};
 	const doSubmit = () => {
-		if (!canSubmit) return;
+		if (!canSubmitNow()) return;
 		const req: AnswerRequest = {
 			dontKnow: sel.dontKnow,
 			values: [...sel.selected].map((i) => qd.options[i]!.value),
@@ -391,6 +384,7 @@ function QuestionDockForm({
 			text: qd.mode === "text" ? answerTextRef.current : undefined,
 			thinking: qd.mode !== "text" ? thinkingTextRef.current.trim() || undefined : undefined,
 			spokenThinking: qd.mode !== "text" ? voiceText(voice.ref.current) : undefined,
+			spokenAnswer: qd.mode === "text" ? voiceText(voice.ref.current) : undefined,
 			// Always sent on quiz answers (owner: 50 must mean 50, never
 			// "untouched"); buildAnswer drops it on "I don't know".
 			confidence: kind === "quiz" ? CONFIDENCE_STOPS[confIdx] : undefined,
@@ -914,7 +908,7 @@ function QuestionDockForm({
 				</div>
 				{/* The voice box — SEPARATE from the typing box (owner
 				    2026-10-25): spoken thinking stays hidden. */}
-				{qd.mode !== "text" && <VoiceNotesBox value={voice.value} onClear={voice.clear} className="mt-1.5" />}
+				<VoiceNotesBox value={voice.value} onClear={voice.clear} className="mt-1.5" />
 			</form>
 		</div>
 	);

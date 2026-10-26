@@ -112,3 +112,77 @@ describe("ThinkingBlock — the '+ voice' tag", () => {
 		assert.ok(!html.includes('data-testid="t-trigger"'));
 	});
 });
+
+describe("voice everywhere (owner 2026-10-25) — messages, answers, openings", async () => {
+	const { voiceMessageContent, splitVoiceContent } = await import("../src/core/contracts/chat.ts");
+	const { newUserMessage, newUserSteer } = await import("../src/core/native-messages.ts");
+	const { parseUserSteerInput } = await import("../src/core/input-events.ts");
+	const { projectView } = await import("../src/core/view.ts");
+	const { buildAnswer } = await import("../src/core/question-core.ts");
+	const { startDraftSession } = await import("../components/new-session.tsx");
+
+	it("model content carries the spoken section; the display split cuts it", () => {
+		const both = voiceMessageContent("typed", { spoken: "said", seconds: 4 });
+		assert.equal(both, "typed\n\nSpoken message (transcribed):\nsaid");
+		assert.deepEqual(splitVoiceContent(both), { text: "typed", spoken: true });
+		const only = voiceMessageContent("", { spoken: "said", seconds: 4 });
+		assert.deepEqual(splitVoiceContent(only), { text: "", spoken: true });
+		assert.deepEqual(splitVoiceContent("plain"), { text: "plain", spoken: false });
+	});
+
+	it("a voice user message renders as text + a voice part, never the transcript", () => {
+		const view = projectView([newUserMessage("hi", { spoken: "secret words", seconds: 41 })]);
+		const parts = view[0]!.parts;
+		assert.deepEqual(parts.map((p) => p.type), ["text", "data-voice-message"]);
+		assert.equal(parts[0]!.text, "hi");
+		assert.deepEqual(parts[1]!.data, { seconds: 41 });
+		assert.ok(!JSON.stringify(view).includes("secret words"));
+		const only = projectView([newUserMessage("", { spoken: "x", seconds: 3 })]);
+		assert.deepEqual(only[0]!.parts.map((p) => p.type), ["data-voice-message"]);
+	});
+
+	it("text and steer inputs accept voice alone; steers keep it", () => {
+		assert.deepEqual(parseChatInput({ type: "text", text: "", voice: { spoken: "hey", seconds: 2.4 } }), {
+			type: "text",
+			text: "",
+			voice: { spoken: "hey", seconds: 2 },
+		});
+		assert.throws(() => parseChatInput({ type: "text", text: " ", voice: { spoken: " " } }), /non-empty/);
+		const steer = parseUserSteerInput({ type: "steer", id: "s1", text: "", voice: { spoken: "go on", seconds: 1 } });
+		assert.equal(newUserSteer(steer.text, steer.id, steer.voice).content, "Spoken message (transcribed):\ngo on");
+	});
+
+	it("a quiz with no pick but spoken thinking is answered BY VOICE — no client grade", () => {
+		const qd = {
+			id: "q",
+			kind: "quiz" as const,
+			question: "?",
+			mode: "single-select" as const,
+			options: [{ label: "a", value: "a" }, { label: "b", value: "b" }],
+			correctIndices: [2], // 1-based display indices: "b"
+			createdAt: "2026-10-25T00:00:00Z",
+		};
+		const a = buildAnswer(qd, { spokenThinking: "I think it's b because…" });
+		assert.equal(a.byVoice, true);
+		assert.equal(a.correct, undefined);
+		assert.equal(compactAnswerForModel(a).correct, undefined);
+		assert.equal(buildAnswer(qd, { values: ["b"], spokenThinking: "b" }).correct, true, "a pick still grades");
+	});
+
+	it("a free-text answer can be spoken", () => {
+		const qd = { id: "q", kind: "ask" as const, question: "?", mode: "text" as const, options: [], createdAt: "2026-10-25T00:00:00Z" };
+		const a = buildAnswer(qd, { spokenAnswer: "my answer" });
+		assert.equal(compactAnswerForModel(a).spokenAnswer, "my answer");
+	});
+
+	it("a voice-only draft titles the session from the transcript", async () => {
+		let body: unknown;
+		const fake = (async (_url: string, init?: RequestInit) => {
+			body = JSON.parse(String(init?.body));
+			return new Response(JSON.stringify({ id: "chat_1" }));
+		}) as typeof fetch;
+		const target = await startDraftSession("", fake, undefined, undefined, "derivatives please");
+		assert.deepEqual(body, { title: "derivatives please" });
+		assert.equal(target, "/chat/chat_1?prompt=");
+	});
+});

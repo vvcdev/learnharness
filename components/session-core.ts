@@ -30,6 +30,7 @@ import {
 	type LhViewMessage,
 	type LiveExecution,
 	type QuestionAnswerData,
+	type UserVoiceInput,
 } from "../src/core";
 
 export type SessionStatus = "ready" | "submitted" | "streaming" | "error";
@@ -573,7 +574,7 @@ export class SessionModel {
 		// write-ahead will persist (inputAppends), with LOCAL ids so
 		// adoption can tell them from the record's absorbed copies.
 		const optimistic: LhMessage[] = [];
-		if (input.type === "text") optimistic.push({ ...newUserMessage(input.text), id: localId() });
+		if (input.type === "text") optimistic.push({ ...newUserMessage(input.text, input.voice), id: localId() });
 		else if (input.type === "thinking") {
 			// The practice submissions (2026-10-04): the marker lands
 			// optimistically — the card renders from its details the
@@ -647,11 +648,14 @@ export class SessionModel {
 	 *  settled mid-send (the race): fall back to the plain text send —
 	 *  the entry is dropped and send() pushes its own optimistic card.
 	 */
-	async steer(text: string): Promise<void> {
+	async steer(text: string, voice?: UserVoiceInput): Promise<void> {
 		const t = text.trim();
-		if (!t) return;
+		const spoken = voice?.spoken.trim() ? voice : undefined;
+		if (!t && !spoken) return;
 		const id = `steer_${localId()}`;
-		this.steerQueueValue = [...this.steerQueueValue, { id, text: t }];
+		// The queued line never shows a transcript (voice-everywhere wave).
+		const line = spoken ? (t ? `${t} · 🎙` : "🎙 Voice message") : t;
+		this.steerQueueValue = [...this.steerQueueValue, { id, text: line }];
 		this.onChange?.();
 		const dropSteer = () => {
 			this.steerQueueValue = this.steerQueueValue.filter((s) => s.id !== id);
@@ -661,12 +665,12 @@ export class SessionModel {
 			const res = await this.fetch(`/api/chats/${this.chatId}/steer`, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ input: { type: "steer", id, text: t } }),
+				body: JSON.stringify({ input: { type: "steer", id, text: t, ...(spoken ? { voice: spoken } : {}) } }),
 			});
 			if (res.ok) return; // parked or delivered — the stream lands the card
 			if (res.status === 409) {
 				dropSteer();
-				await this.send({ type: "text", text: t }); // the settle race: plain send
+				await this.send({ type: "text", text: t, ...(spoken ? { voice: spoken } : {}) }); // the settle race: plain send
 				return;
 			}
 			dropSteer();

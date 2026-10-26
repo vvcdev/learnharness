@@ -27,6 +27,7 @@
 
 import type { QuestionAnswerData } from "./question-core.ts";
 import type { LhMessage } from "./native-messages.ts";
+import type { UserVoiceInput } from "./contracts/chat.ts";
 import {
 	activeProblemOf,
 	concludedByDismissalPair,
@@ -42,7 +43,7 @@ import { QUESTION_TOOLS, toolQuestionKind } from "./pending.ts";
 
 /** One client-originated input event (the POST body's `input`). */
 export type ChatInput =
-	| { type: "text"; text: string }
+	| { type: "text"; text: string; voice?: UserVoiceInput }
 	| { type: "answer"; toolCallId: string; answer: QuestionAnswerData }
 	| { type: "continue" }
 	/** The practice dock's two buttons (owner, 2026-10-04): the learner's
@@ -110,7 +111,17 @@ export function parseDismissInput(input: unknown): DismissInput {
  *  (a send with no live turn is a plain text send, which already exists).
  *  The id is client-minted (steer_<localid>): the queued indicator keys on
  *  it, and the drain's message events upsert the real card by the same id. */
-export type UserSteerInput = { type: "steer"; id: string; text: string };
+export type UserSteerInput = { type: "steer"; id: string; text: string; voice?: UserVoiceInput };
+
+/** The optional voice part of a text/steer input: a non-empty transcript
+ *  + a finite non-negative length; anything else is no voice. */
+function parseVoice(v: unknown): UserVoiceInput | undefined {
+	if (typeof v !== "object" || v === null) return undefined;
+	const { spoken, seconds } = v as Record<string, unknown>;
+	if (typeof spoken !== "string" || spoken.trim().length === 0) return undefined;
+	const s = typeof seconds === "number" && Number.isFinite(seconds) && seconds >= 0 ? Math.round(seconds) : 0;
+	return { spoken, seconds: s };
+}
 
 /** Parse and validate a steer event off a request body. */
 export function parseUserSteerInput(input: unknown): UserSteerInput {
@@ -120,10 +131,11 @@ export function parseUserSteerInput(input: unknown): UserSteerInput {
 	if (typeof i.id !== "string" || i.id.length === 0) {
 		throw new ChatInputError("steer input requires a client-minted id");
 	}
-	if (typeof i.text !== "string" || i.text.trim().length === 0) {
+	const voice = parseVoice(i.voice);
+	if (typeof i.text !== "string" || (i.text.trim().length === 0 && !voice)) {
 		throw new ChatInputError("steer input requires non-empty text");
 	}
-	return { type: "steer", id: i.id, text: i.text };
+	return { type: "steer", id: i.id, text: i.text, ...(voice ? { voice } : {}) };
 }
 
 /** The native appends a dismissal makes (pure — same orphan discipline
@@ -156,10 +168,14 @@ export function parseChatInput(input: unknown): ChatInput {
 	const i = input as Record<string, unknown>;
 	switch (i.type) {
 		case "text":
-			if (typeof i.text !== "string" || (i.text as string).trim().length === 0) {
-				throw new ChatInputError("text input requires non-empty text");
+			{
+				// Voice (owner 2026-10-25): typed text OR a spoken transcript.
+				const voice = parseVoice(i.voice);
+				if (typeof i.text !== "string" || (i.text.trim().length === 0 && !voice)) {
+					throw new ChatInputError("text input requires non-empty text");
+				}
+				return { type: "text", text: i.text, ...(voice ? { voice } : {}) };
 			}
-			return { type: "text", text: i.text };
 		case "answer":
 			if (typeof i.toolCallId !== "string" || i.toolCallId.length === 0) {
 				throw new ChatInputError("answer input requires toolCallId");
@@ -210,7 +226,7 @@ export function inputAppends(
 ): LhMessage[] {
 	switch (input.type) {
 		case "text":
-			return [...dismissalConclusion(record), newUserMessage(input.text)];
+			return [...dismissalConclusion(record), newUserMessage(input.text, input.voice)];
 		case "answer": {
 			const pending = danglingQuestionOf(record.messages);
 			if (!pending || pending.toolCallId !== input.toolCallId) {

@@ -10,9 +10,9 @@ export default async function ChatPage({
 	searchParams,
 }: {
 	params: Promise<{ id: string }>;
-	searchParams: Promise<{ prompt?: string }>;
+	searchParams: Promise<{ prompt?: string; spoken?: string; seconds?: string }>;
 }) {
-	const [{ id }, { prompt }] = await Promise.all([params, searchParams]);
+	const [{ id }, { prompt, spoken, seconds }] = await Promise.all([params, searchParams]);
 	const chat = getChat(id);
 	if (!chat) notFound();
 	// The persistent setup CTA's seed (BYOK, owner 2026-09-22): slotsConfigured
@@ -31,6 +31,9 @@ export default async function ChatPage({
 				initialMessages={chat.messages}
 			initialConfigured={slotsConfigured(record?.models)}
 			initialPrompt={prompt}
+			// A voice opening (voice-everywhere wave, owner 2026-10-25): the
+			// transcript rides the first send as its hidden spoken part.
+			initialVoice={spoken?.trim() ? { spoken, seconds: Number(seconds) || 0 } : undefined}
 			// A teacher turn that outlived its client: the remounted view must
 			// attach (busy shimmer + poll), never resurrect the stale record.
 			initiallyInFlight={isTurnRunning(chat.id)}

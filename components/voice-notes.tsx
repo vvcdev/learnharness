@@ -40,6 +40,13 @@ export function formatVoiceDuration(seconds: number): string {
 	return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
+/** A voice opening's query tail for /chat/<id>?prompt=… (voice-everywhere
+ *  wave, owner 2026-10-25): the chat page hands it to the first send. */
+export function voiceOpeningQuery(v: VoiceNotes): string {
+	const spoken = voiceText(v);
+	return spoken ? `&spoken=${encodeURIComponent(spoken)}&seconds=${Math.round(v.seconds)}` : "";
+}
+
 /** State + a ref mirror (the "nothing gets lost" law: a submit resuming
  *  after `await finishDictation()` reads the ref, never a stale closure). */
 export function useVoiceNotes() {
@@ -109,6 +116,18 @@ export function VoiceNotesBox({
 					<XIcon className="size-3.5" />
 				</button>
 			)}
+		</div>
+	);
+}
+
+/** The transcript's voice bubble (voice-everywhere wave, owner
+ *  2026-10-25): a sent voice message renders as this line — never its
+ *  words. `seconds` is null where the length didn't survive transport. */
+export function VoiceMessageLine({ seconds }: { seconds: number | null }) {
+	return (
+		<div data-testid="voice-message" className="mt-0.5 flex items-center gap-1.5 text-sm text-muted-foreground">
+			<MicIcon className="size-3.5 shrink-0" />
+			{seconds == null ? "Voice message" : `Voice message · ${formatVoiceDuration(seconds)}`}
 		</div>
 	);
 }

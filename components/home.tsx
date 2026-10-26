@@ -10,7 +10,8 @@ import { ComposerActions, NodePickerControl } from "@/components/composer-action
 import { openingWithSources, SourcePicker, type AttachedSource } from "@/components/source-attach";
 import { ProjectPackControl } from "@/components/project-pack";
 import { useStrongKeyless, useZeroKeys, ZeroKeysPill } from "@/components/setup-cta";
-import { joinDictation, useDictation } from "@/components/dictation";
+import { useDictation } from "@/components/dictation";
+import { useVoiceNotes, voiceOpeningQuery, voiceText, VoiceNotesBox } from "@/components/voice-notes";
 import { useFieldCycle } from "@/components/field-cycle";
 import { SidebarToggle } from "@/components/sidebar";
 import { StatsBar } from "@/components/stats-bar";
@@ -68,15 +69,10 @@ export function Home({
 	const [setupOpen, setSetupOpen] = useState(false);
 	// Voice dictation (STT wave, 2026-09-17): finals append at the end of the
 	// topic draft; the strip lives in the stats bar's middle slot.
-	const dictation = useDictation({
-		// Ref-first: the join reads the mirror so the send resuming after
-		// `await finish()` sees the dictated tail.
-		append: (t) => {
-			const v = joinDictation(topicRef.current, t);
-			topicRef.current = v;
-			setTopic(v);
-		},
-	});
+	/* Voice everywhere (owner 2026-10-25): spoken topics are hidden voice
+	 * notes — the session's title comes from them, the box never shows them. */
+	const voice = useVoiceNotes();
+	const dictation = useDictation({ append: voice.add });
 	const [busy, setBusy] = useState(false);
 	/* Run end focuses the topic input (owner, 2026-10-01): the hands are on
 	 * the keyboard from the stop. Falling edge only; this surface's only
@@ -128,8 +124,9 @@ export function Home({
 	const begin = async () => {
 		const t = topicRef.current.trim();
 		const hasContext = sourcesRef.current.length > 0 || !!activeProjectRef.current;
-		const opening = t || (hasContext ? "Teach me from these sources." : "");
-		if (!opening || busy) return;
+		const spoken = voiceText(voice.ref.current);
+		const opening = t || (hasContext && !spoken ? "Teach me from these sources." : "");
+		if ((!opening && !spoken) || busy) return;
 		// Unconfigured: the send INTERCEPTS into the setup flow (the draft
 		// stays in the textarea; the learner sends it after Save).
 		if (!configured) {
@@ -158,7 +155,7 @@ export function Home({
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({
-					title: opening,
+					title: opening || spoken,
 					...(mode === "practice" ? { kind: "practice" } : {}),
 					...(practiceProps.length > 0 ? { graphContext: { propositions: practiceProps } } : {}),
 				}),
@@ -177,7 +174,9 @@ export function Home({
 				return;
 			}
 			applySources([]);
-			router.push(`/chat/${id}?prompt=${encodeURIComponent(prompt)}`);
+			const voiceQuery = voiceOpeningQuery(voice.ref.current);
+			voice.clear();
+			router.push(`/chat/${id}?prompt=${encodeURIComponent(prompt)}${voiceQuery}`);
 		} catch {
 			setBusy(false);
 		}
@@ -311,7 +310,7 @@ export function Home({
 					<button
 						type="submit"
 						aria-label="Start session"
-						disabled={(!topic.trim() && sources.length === 0 && !activeProject && !dictation.active) || busy}
+						disabled={(!topic.trim() && sources.length === 0 && !activeProject && !dictation.active && voice.value.notes.length === 0) || busy}
 						className="flex size-10 shrink-0 items-center justify-center rounded-[10px] bg-primary text-primary-foreground transition-colors hover:opacity-90 disabled:opacity-40"
 					>
 										<CornerDownLeftIcon className="size-5" />
@@ -319,6 +318,7 @@ export function Home({
 								</div>
 							)}
 						/>
+						<VoiceNotesBox value={voice.value} onClear={voice.clear} className="mt-1.5" />
 					</form>
 					{/* Same as the chat view's under-composer stats bar (owner) — no
 					    session yet, so the LEFT side renders nothing (wave 7 sweep)

@@ -85,6 +85,10 @@ export function AnsweredCard({ answer, input }: { answer: QuestionAnswerData; in
 				{isQuiz &&
 					(answer.dontKnow ? (
 						<span className="rounded bg-muted px-1.5 py-0.5">didn't know</span>
+					) : answer.byVoice ? (
+						// Answered by voice (owner 2026-10-25): no client grade —
+						// the tutor judges from what he said.
+						<span className="rounded bg-muted px-1.5 py-0.5">by voice</span>
 					) : answer.correct ? (
 						<span className="rounded bg-green-500/15 px-1.5 py-0.5 text-green-500">correct</span>
 					) : (
@@ -183,6 +187,11 @@ export function AnsweredCard({ answer, input }: { answer: QuestionAnswerData; in
 			)}
 			{answer.dontKnow && isQuiz && (
 				<div className="mt-2 text-sm text-muted-foreground">Answered “I don't know”.</div>
+			)}
+			{(answer.byVoice || (answer.spokenAnswer && !answer.text)) && (
+				<div className="mt-2 text-sm text-muted-foreground" data-testid="answered-by-voice">
+					Answered by voice
+				</div>
 			)}
 
 			{(answer.thinking ?? answer.note ?? answer.spokenThinking) && (

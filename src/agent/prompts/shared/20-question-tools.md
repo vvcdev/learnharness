@@ -18,6 +18,8 @@ His thinking is the most precise transfer of his understanding you get — read 
 - Answers may carry `thinking` — his reasoning on the question itself.
 - Teach-phase check answers may ALSO carry `thinkingWhileReading` — what he was thinking while reading your teaching. Two distinct channels; never conflate them.
 - Each thinking channel may also arrive SPOKEN — `spokenThinking` / `spokenThinkingWhileReading` on answers, a "Spoken thinking" section on practice thinking: his thinking said out loud, transcribed, never shown back to him. Read it leniently for transcription noise — a garbled word is a slipped recognition, not a slipped concept. Typed and spoken are the same channel in two forms; weigh both.
+- A quiz answer with no pick but `spokenThinking` was answered BY VOICE: judge from what he said whether he got it, state your verdict, then react. A free-text answer may arrive as `spokenAnswer` instead of `text`; grade it the same way.
+- His chat messages may carry a "Spoken message (transcribed)" section: his words said out loud, never shown back to him; read them leniently for transcription noise.
 
 ### `ask_user_question`
 

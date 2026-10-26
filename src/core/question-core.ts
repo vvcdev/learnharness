@@ -467,6 +467,11 @@ export interface QuestionAnswerData {
 	 *  learner — stored apart so his cards render only what he typed. */
 	spokenThinking?: string;
 	spokenReadingThinking?: string;
+	/** A free-text answer SPOKEN (voice-everywhere wave, owner 2026-10-25). */
+	spokenAnswer?: string;
+	/** A quiz answered BY VOICE alone — no pick (owner 2026-10-25): no
+	 *  client grade; the tutor judges from spokenThinking. */
+	byVoice?: boolean;
 	confidence?: number; // quiz only: the learner's stated probability (0-100, raw) that his selected answer is correct — never sent on "I don't know" (owner, 2026-10-01)
 	correct?: boolean; // quiz only
 	correctIndices?: number[]; // quiz only (rendering)
@@ -496,6 +501,7 @@ export interface AnswerRequest {
 	readingThinking?: string; // the thinking-while-reading channel (check answers)
 	spokenThinking?: string; // voice notes on the question (never shown back)
 	spokenReadingThinking?: string; // voice notes while reading (never shown back)
+	spokenAnswer?: string; // a free-text answer spoken (never shown back)
 	confidence?: number; // quiz only: 0-100 raw probability — 50 is a real coin flip, always sent (owner, 2026-10-01)
 }
 
@@ -711,6 +717,7 @@ export function buildAnswer(qd: QuestionData, req: AnswerRequest, tool?: string)
 		// Spoken twins only when present — older answers' shapes stay exact.
 		...(req.spokenThinking?.trim() ? { spokenThinking: req.spokenThinking.trim() } : {}),
 		...(req.spokenReadingThinking?.trim() ? { spokenReadingThinking: req.spokenReadingThinking.trim() } : {}),
+		...(req.spokenAnswer?.trim() ? { spokenAnswer: req.spokenAnswer.trim() } : {}),
 		answeredAt: new Date().toISOString(),
 	};
 	// resolve selected option values → OptionAnswer (in display order)
@@ -726,7 +733,13 @@ export function buildAnswer(qd: QuestionData, req: AnswerRequest, tool?: string)
 	if (req.other?.trim()) base.other = req.other.trim();
 	if (req.text?.trim()) base.text = req.text.trim();
 
-	if (qd.kind === "quiz") {
+	if (qd.kind === "quiz" && !base.dontKnow && base.answers.length === 0 && !base.other && base.spokenThinking) {
+		// Answered by voice (owner 2026-10-25): no pick to grade — the tutor
+		// judges from what he said. The key + explanation still snapshot.
+		base.correctIndices = qd.correctIndices ?? [];
+		base.explanation = qd.explanation;
+		base.byVoice = true;
+	} else if (qd.kind === "quiz") {
 		base.correctIndices = qd.correctIndices ?? [];
 		base.explanation = qd.explanation;
 		base.correct = base.dontKnow ? false : isCorrect(base.answers.map((a) => a.index), qd.correctIndices ?? []);
@@ -797,5 +810,6 @@ export function compactAnswerForModel(ad: QuestionAnswerData): Record<string, un
 	// knows which was said out loud.
 	if (ad.spokenThinking) out.spokenThinking = ad.spokenThinking;
 	if (ad.spokenReadingThinking) out.spokenThinkingWhileReading = ad.spokenReadingThinking;
+	if (ad.spokenAnswer) out.spokenAnswer = ad.spokenAnswer;
 	return out;
 }

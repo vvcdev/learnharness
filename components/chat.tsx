@@ -29,8 +29,8 @@ import { useEnterSubmits } from "@/components/enter-submits";
 import { blurAfterPointerClick } from "@/components/focus-hygiene";
 import { dockStateKey } from "@/components/dock-state-key";
 import { QueuedSteersBody, type QueuedSteerLine } from "@/components/queued-steers";
-import { finishDictation, joinDictation, useDictation } from "@/components/dictation";
-import { useVoiceNotes, voiceText, type VoiceNotes } from "@/components/voice-notes";
+import { finishDictation, useDictation } from "@/components/dictation";
+import { useVoiceNotes, voiceText, VoiceMessageLine, type VoiceNotes } from "@/components/voice-notes";
 import { useFieldCycle } from "@/components/field-cycle";
 import { JobsContext } from "@/components/jobs-context";
 import { StatsBar } from "@/components/stats-bar";
@@ -52,7 +52,7 @@ import { PlanMarginalia, planExists } from "@/components/plan-window";
 import { MermaidOverlay, SessionMermaidContext } from "@/components/session-overlay";
 import { AbortTurnDialog, type AbortMode } from "@/components/abort-turn-dialog";
 import { ArrowRightIcon, DumbbellIcon, WaypointsIcon } from "lucide-react";
-import type { PlanBlockData } from "@/src/core";
+import type { PlanBlockData, UserVoiceInput } from "@/src/core";
 import { QuestionDock } from "@/components/question-dock";
 import { SessionFind } from "@/components/session-find";
 import { SessionMessageNavigation } from "@/components/session-navigation";
@@ -202,6 +202,7 @@ export function Chat({
 	title,
 	initialMessages,
 	initialPrompt,
+	initialVoice,
 	initiallyInFlight,
 	initiallyCompacting = false,
 	initialConfigured = false,
@@ -215,6 +216,8 @@ export function Chat({
 	 *  tag rides the header instead. */
 	kind?: "teach" | "practice";
 	initialPrompt?: string;
+	/** The opening's spoken part (voice-everywhere wave, owner 2026-10-25). */
+	initialVoice?: UserVoiceInput;
 	/** A teacher turn is running server-side but attached to no client
 	 * (navigated away mid-turn, returned while in flight). */
 	initiallyInFlight?: boolean;
@@ -253,11 +256,11 @@ export function Chat({
 	// (initialPromptOwed — the pure gate, pinned in the test suite).
 	const sentInitial = useRef(false);
 	useEffect(() => {
-		if (!sentInitial.current && initialPromptOwed(initialMessages, initialPrompt)) {
+		if (!sentInitial.current && initialPromptOwed(initialMessages, initialPrompt || initialVoice?.spoken)) {
 			sentInitial.current = true;
-			void send({ type: "text", text: initialPrompt! });
+			void send({ type: "text", text: initialPrompt ?? "", ...(initialVoice ? { voice: initialVoice } : {}) });
 		}
-	}, [initialPrompt, initialMessages, send]);
+	}, [initialPrompt, initialVoice, initialMessages, send]);
 
 	// A turn running server-side, attached to no live view of ours (navigate
 	// away mid-turn, or a wake turn discovered mid-session): the reattach
@@ -659,11 +662,10 @@ export function Chat({
 		];
 	}, []);
 	useFieldCycle(cycleChatFields);
-	const dictation = useDictation({
-		// Ref-first (see textRef): the join is computed from the mirror so a
-		// send resuming after `await finish()` reads the dictated tail.
-		append: (t) => applyText(joinDictation(textRef.current, t)),
-	});
+	/* Voice everywhere (owner 2026-10-25): composer dictation becomes hidden
+	 * voice notes riding the send — never text in the box. */
+	const composerVoice = useVoiceNotes();
+	const dictation = useDictation({ append: composerVoice.add });
 	/* When a dictation run ends, the bare composer takes focus (owner
 	 * 2026-10-01) — the hands are already on the keyboard from the stop.
 	 * Falling edge of `active` only (idle→idle never focuses), and ONLY the
@@ -700,7 +702,10 @@ export function Chat({
 	// affordance).
 	const [compacting, setCompacting] = useState(initiallyCompacting);
 	const canSend =
-		(text.trim().length > 0 || dictation.active || sources.length > 0) && !pending && !activeProblem && !compacting;
+		(text.trim().length > 0 || dictation.active || sources.length > 0 || composerVoice.value.notes.length > 0) &&
+		!pending &&
+		!activeProblem &&
+		!compacting;
 
 	/* THE PRACTICE PAUSE (owner round 16): between problems — practice
 	 * kind, nothing active, nothing in flight, and at least one problem
@@ -1163,7 +1168,9 @@ export function Chat({
 		if (pending || compacting) return;
 		const t = textRef.current.trim();
 		const attached = sourcesRef.current;
-		if (!t && attached.length === 0) return;
+		const spoken = voiceText(composerVoice.ref.current);
+		const voice = spoken ? { spoken, seconds: composerVoice.ref.current.seconds } : undefined;
+		if (!t && attached.length === 0 && !voice) return;
 		if (!steering && busy) return;
 		let textOut = t;
 		if (attached.length > 0) {
@@ -1177,8 +1184,9 @@ export function Chat({
 		}
 		draftRef.current = textOut;
 		applyText("");
-		if (steering) void steer(textOut);
-		else void send({ type: "text", text: textOut });
+		composerVoice.clear();
+		if (steering) void steer(textOut, voice);
+		else void send({ type: "text", text: textOut, ...(voice ? { voice } : {}) });
 	};
 	const doSend = () => {
 		void deliver(false);
@@ -1372,7 +1380,9 @@ export function Chat({
 								// assistant group — is gone). Never a user bubble: the wake is
 								// scaffolding; the model-facing instruction lives in the adapter.
 								<PhaseDivider key={m.id || `m-${mi}`} phase="plan" />
-							) : m.role === "user" && m.parts.length > 0 && m.parts.every((p) => p.type.startsWith("data-")) ? (
+							) : m.role === "user" &&
+							  m.parts.length > 0 &&
+							  m.parts.every((p) => p.type.startsWith("data-") && p.type !== "data-voice-message") ? (
 								// Marker cards (custom messages, 2026-10-04): user-side
 								// scaffolding — the graph-context pick, the practice
 								// thinking trace — render as cards in the transcript
@@ -1464,6 +1474,13 @@ export function Chat({
 												<div className="lh-prose whitespace-pre-wrap text-foreground">
 													{m.parts.filter((p) => p.type === "text").map((p) => p.text).join("\n")}
 												</div>
+												{/* The voice bubble (owner 2026-10-25): the transcript never
+												    renders — only that he spoke, and for how long. */}
+												{m.parts
+													.filter((p) => p.type === "data-voice-message")
+													.map((p, pi) => (
+														<VoiceMessageLine key={pi} seconds={(p.data as { seconds?: number | null } | undefined)?.seconds ?? null} />
+													))}
 											</div>
 									) : (
 									<Message from="assistant" className="max-w-full">
@@ -1674,6 +1691,7 @@ export function Chat({
 							onSend={onSend}
 							onStop={abortInFlightTurn}
 							canSend={canSend}
+							voice={{ value: composerVoice.value, onClear: composerVoice.clear }}
 							attachments={(row) => (
 								<SourcePicker
 									files={sources}

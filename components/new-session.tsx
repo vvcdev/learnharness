@@ -4,7 +4,8 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { useRouter } from "next/navigation";
 import { Conversation, ConversationContent, ConversationEmptyState } from "@/components/ai-elements/conversation";
 import { Composer } from "@/components/composer";
-import { joinDictation, useDictation } from "@/components/dictation";
+import { useDictation } from "@/components/dictation";
+import { useVoiceNotes, voiceOpeningQuery, voiceText, type VoiceNotes } from "@/components/voice-notes";
 import { useFieldCycle } from "@/components/field-cycle";
 import { SidebarToggle } from "@/components/sidebar";
 import { SetupDialog } from "@/components/setup-dialog";
@@ -47,9 +48,13 @@ export async function startDraftSession(
 	fetchLike: typeof fetch,
 	mode?: "practice",
 	picks?: readonly DraftPick[],
+	/** The sidebar title when it isn't the text — a voice opening's
+	 *  transcript (voice-everywhere wave, owner 2026-10-25). */
+	title: string = text,
 ): Promise<string | null> {
 	const t = text.trim();
-	if (!t) return null;
+	const name = title.trim();
+	if (!name) return null;
 	// THE PICKS RIDE THE CREATE (owner round 10): a practice draft seeded
 	// from the pick bar creates its session WITH the graph context — the
 	// same contract as the home screen's practice send (the marker with
@@ -59,8 +64,8 @@ export async function startDraftSession(
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify(
 			mode === "practice"
-				? { title: t, kind: "practice", ...(picks && picks.length > 0 ? { graphContext: { propositions: picks } } : {}) }
-				: { title: t },
+				? { title: name, kind: "practice", ...(picks && picks.length > 0 ? { graphContext: { propositions: picks } } : {}) }
+				: { title: name },
 		),
 	});
 	const { id } = (await res.json()) as { id: string };
@@ -79,6 +84,7 @@ export function DraftShell({
 	text,
 	onChange,
 	onSend,
+	voice,
 	setupCta,
 	mode = "teach",
 	picks = [],
@@ -96,6 +102,9 @@ export function DraftShell({
 	text: string;
 	onChange: (v: string) => void;
 	onSend: () => void;
+	/** The voice box (voice-everywhere wave, owner 2026-10-25): dictation
+	 *  becomes hidden voice notes riding the send — owned by NewSession. */
+	voice?: { value: VoiceNotes; add: (text: string, seconds: number) => void; clear: () => void };
 	/** The practice draft (owner, 2026-10-04): ?mode=practice — the
 	 *  created session carries kind:"practice" and the copy changes
 	 *  (the practice agent opens; no probing). */
@@ -133,14 +142,13 @@ export function DraftShell({
 		Array.from(document.querySelectorAll<HTMLElement>('[data-testid="composer"] textarea')),
 		[]);
 	useFieldCycle(cycleComposer);
-	const dictation = useDictation({
-		append: (t) => onChange(joinDictation(text, t)),
-	});
+	const dictation = useDictation({ append: (t, seconds) => voice?.add(t, seconds) });
 	// A LIVE dictation keeps the composer sendable ("nothing gets lost"
 	// round, owner 2026-10-01): the spoken text is deferred in the run's
 	// buffer — Enter must reach the finish-first send, not be gated out by
 	// an empty textarea. Nothing said → the send no-ops.
-	const canSend = text.trim().length > 0 || dictation.active || sources.length > 0 || !!activeProject;
+	const canSend =
+		text.trim().length > 0 || dictation.active || sources.length > 0 || !!activeProject || (voice?.value.notes.length ?? 0) > 0;
 	/* FINISH DICTATION FIRST (owner, 2026-10-01): stop the run, let the
 	 * last finals land through onChange, THEN call the parent's send —
 	 * which reads its REF mirror, so the post-await timing of React's
@@ -212,6 +220,7 @@ export function DraftShell({
 										onSend={handleSend}
 										onStop={() => {}}
 										canSend={canSend}
+										voice={voice ? { value: voice.value, onClear: voice.clear } : undefined}
 										attachments={onSources ? (row) => (
 											<SourcePicker
 												files={sources}
@@ -310,6 +319,11 @@ export function NewSession({ initialConfigured, mode = "teach" }: { initialConfi
 	const [setupOpen, setSetupOpen] = useState(false);
 	const [sources, setSources] = useState<AttachedSource[]>([]);
 	const sourcesRef = useRef<AttachedSource[]>([]);
+	/* Voice everywhere (owner 2026-10-25): the draft's spoken opening —
+	 * hidden notes; the title comes from them when nothing is typed. */
+	const voice = useVoiceNotes();
+	const voiceRef = voice.ref;
+	const clearVoice = voice.clear;
 	const [sourceError, setSourceError] = useState<string | null>(null);
 	const [activeProject, setActiveProject] = useState<ProjectSummary | null>(null);
 	const activeProjectRef = useRef<ProjectSummary | null>(null);
@@ -325,7 +339,8 @@ export function NewSession({ initialConfigured, mode = "teach" }: { initialConfi
 	const send = useCallback(() => {
 		const draft = textRef.current.trim();
 		const hasContext = sourcesRef.current.length > 0 || !!activeProjectRef.current;
-		if ((!draft && !hasContext) || busy) return;
+		const spoken = voiceText(voiceRef.current);
+		if ((!draft && !hasContext && !spoken) || busy) return;
 		if (!configured) {
 			setSetupOpen(true);
 			return;
@@ -340,8 +355,14 @@ export function NewSession({ initialConfigured, mode = "teach" }: { initialConfi
 			return;
 		}
 		setBusy(true);
-		const opening = draft || "Teach me from these sources.";
-		void startDraftSession(opening, fetch, mode === "practice" ? "practice" : undefined, mode === "practice" ? picksRef.current : undefined)
+		const opening = draft || (spoken ? "" : "Teach me from these sources.");
+		void startDraftSession(
+			opening,
+			fetch,
+			mode === "practice" ? "practice" : undefined,
+			mode === "practice" ? picksRef.current : undefined,
+			opening || spoken,
+		)
 			.then(async (target) => {
 				if (!target) {
 					setBusy(false);
@@ -351,7 +372,9 @@ export function NewSession({ initialConfigured, mode = "teach" }: { initialConfi
 				try {
 					const prompt = await openingWithSources(id, opening, sourcesRef.current);
 					applySources([]);
-					router.push(`/chat/${id}?prompt=${encodeURIComponent(prompt)}`);
+					const voiceQuery = voiceOpeningQuery(voiceRef.current);
+					clearVoice();
+					router.push(`/chat/${id}?prompt=${encodeURIComponent(prompt)}${voiceQuery}`);
 				} catch (error) {
 					await fetch(`/api/chats/${id}?mode=preserve-graph`, { method: "DELETE" }).catch(() => {});
 					setSourceError(error instanceof Error ? error.message : "Could not save the sources.");
@@ -359,7 +382,7 @@ export function NewSession({ initialConfigured, mode = "teach" }: { initialConfi
 				}
 			})
 			.catch(() => setBusy(false));
-	}, [busy, router, configured, zeroKeys, strongKeyless]);
+	}, [busy, router, configured, zeroKeys, strongKeyless, voiceRef, clearVoice]);
 
 	return (
 		<>
@@ -368,6 +391,7 @@ export function NewSession({ initialConfigured, mode = "teach" }: { initialConfi
 				text={text}
 				onChange={applyText}
 				onSend={send}
+				voice={voice}
 				mode={mode}
 				sources={sources}
 				sourceError={sourceError}

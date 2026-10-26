@@ -38,7 +38,7 @@ import { modelSolutionForConclude, PRACTICE_CONCLUDE_TOOL, problemInputForConclu
 import { activeCompactionOf, type CompactionDetails } from "./compaction.ts";
 import { QUESTION_TOOLS } from "./pending.ts";
 import type { SubagentArtifactData, SubagentResultMeta } from "./contracts/jobs.ts";
-import type { PlanBlockData } from "./contracts/chat.ts";
+import { splitVoiceContent, type PlanBlockData } from "./contracts/chat.ts";
 
 /** A view part — the loose part vocabulary the renderers consume (the same
  *  shape names the pre-Wave-D UIMessage dialect used, so the renderer
@@ -176,7 +176,16 @@ export function projectView(messages: readonly LhMessage[], live?: LiveTurnState
 				typeof content === "string"
 					? [content]
 					: content.filter((c) => c.type === "text").map((c) => (c as { text: string }).text);
-			out.push({ id: m.id, role: "user", parts: texts.map(textPart) });
+			// Voice messages (owner 2026-10-25): the spoken section never
+			// renders — the typed text, then a voice part with its length.
+			const split = texts.map(splitVoiceContent);
+			const spoken = split.some((s) => s.spoken);
+			const parts = split.map((s) => s.text).filter((t, i) => t || !split[i]!.spoken).map(textPart);
+			if (spoken) {
+				const seconds = (m as { voice?: { seconds?: number } }).voice?.seconds;
+				parts.push({ type: "data-voice-message", id: `vm_${m.id}`, data: { seconds: seconds ?? null } });
+			}
+			out.push({ id: m.id, role: "user", parts });
 			continue;
 		}
 
