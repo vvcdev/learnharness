@@ -32,6 +32,14 @@ function outlineUrlFor(file: AttachedSource): string {
 		: `/api/uploads/outline?batch=${encodeURIComponent(file.batchId)}&stored=${encodeURIComponent(file.stored)}`;
 }
 
+/** PDF page thumbnail base URL (the picker appends `&page=N` / `?page=N`). */
+function previewUrlFor(file: AttachedSource): string | undefined {
+	if (scopeKindFor(file.name) !== "pages") return undefined;
+	return file.project
+		? `/api/projects/${encodeURIComponent(file.project)}/files/${encodeURIComponent(file.stored)}/preview`
+		: `/api/uploads/preview?batch=${encodeURIComponent(file.batchId)}&stored=${encodeURIComponent(file.stored)}`;
+}
+
 /** Copy @-mentioned project files into a session (with their limits).
  *  Returns the source-list lines plus the project's instructions. */
 export async function attachProjectFiles(
@@ -175,7 +183,7 @@ function SourceChips({
 	onChange: (files: AttachedSource[]) => void;
 	error?: string | null;
 }) {
-	const [picking, setPicking] = useState<{ key: string; anchor: HTMLElement } | null>(null);
+	const [picking, setPicking] = useState<string | null>(null);
 	if (files.length === 0 && !error) return null;
 	return (
 		<div className="flex flex-col gap-1 px-1.5 pb-1">
@@ -186,16 +194,13 @@ function SourceChips({
 						const scopable = scopeKindFor(file.name) !== null;
 						return (
 						<span key={key} className="relative flex max-w-64 items-center gap-1 rounded-sm border border-border bg-background px-1.5 py-0.5 text-xs text-foreground">
-							{/* Click to limit pages / slides / sections (owner 2026-10-26). */}
+							{/* Click to browse & limit pages / slides / sections (owner 2026-10-26). */}
 							<button
 								type="button"
 								data-testid="source-chip"
 								disabled={!scopable}
-								title={scopable ? "Limit to pages, slides, or sections" : undefined}
-								onClick={(e) => {
-									const anchor = e.currentTarget;
-									setPicking(picking?.key === key ? null : { key, anchor });
-								}}
+								title={scopable ? "Browse and pick pages, slides, or sections" : undefined}
+								onClick={() => setPicking(picking === key ? null : key)}
 								className={cn("flex min-w-0 items-center gap-1", scopable && "cursor-pointer hover:text-primary")}
 							>
 								{file.project && <FolderIcon className="size-3 shrink-0 text-muted-foreground" aria-label="Project file" />}
@@ -206,11 +211,12 @@ function SourceChips({
 									<span className="shrink-0 text-[10px] text-muted-foreground">all</span>
 								) : null}
 							</button>
-							{picking?.key === key && (
+							{picking === key && (
 								<SourceScopePicker
 									outlineUrl={outlineUrlFor(file)}
+									previewUrl={previewUrlFor(file)}
+									fileName={file.name}
 									scope={file.scope}
-									anchor={picking.anchor}
 									onChange={(scope) =>
 										onChange(files.map((f) => (f.batchId === file.batchId && f.stored === file.stored ? { ...f, scope } : f)))
 									}

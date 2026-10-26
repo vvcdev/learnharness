@@ -7,11 +7,12 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import { crc32 } from "node:zlib";
 import { describe, it } from "node:test";
 import { formatPages, parseRangeSpec, parseSourceScope, scopeKindFor, scopeNote } from "../src/core/source-scope.ts";
 import { appendLessonSources } from "../src/core/lesson-sources.ts";
-import { applySourceScope, readPdfPageLimit, sourceOutline, writePdfPageLimit } from "../src/server/source-scope.ts";
+import { applySourceScope, readPdfPageLimit, renderPdfPreviewPage, sourceOutline, writePdfPageLimit } from "../src/server/source-scope.ts";
 
 /** A minimal stored (uncompressed) zip — enough for docx/pptx fixtures. */
 function zip(files: Record<string, string>): Uint8Array {
@@ -99,7 +100,11 @@ describe("ranges", () => {
 describe("slides", () => {
 	it("outline in slide-number order and cut only the chosen ones", async () => {
 		const outline = await sourceOutline(tmpFile("deck.pptx", pptx), "deck.pptx");
-		assert.deepEqual(outline, { kind: "slides", count: 3, titles: ["Intro", "Kinematics & motion", "Summary"] });
+		assert.equal(outline.kind, "slides");
+		if (outline.kind !== "slides") return;
+		assert.equal(outline.count, 3);
+		assert.deepEqual(outline.titles, ["Intro", "Kinematics & motion", "Summary"]);
+		assert.deepEqual(outline.previews, ["Intro", "Kinematics & motion", "Summary"]);
 		const cut = await applySourceScope({ name: "deck.pptx", bytes: pptx }, { kind: "slides", spec: "2" });
 		const text = Buffer.from(cut.bytes).toString();
 		assert.equal(cut.name, "deck (slides 2).md");
@@ -114,14 +119,17 @@ describe("slides", () => {
 describe("sections", () => {
 	it("outline headings; a chapter includes its subsections, nothing else survives", async () => {
 		const outline = await sourceOutline(tmpFile("n.docx", docx), "n.docx");
-		assert.deepEqual(outline, {
-			kind: "sections",
-			sections: [
+		assert.equal(outline.kind, "sections");
+		if (outline.kind !== "sections") return;
+		assert.deepEqual(
+			outline.sections.map(({ level, title }) => ({ level, title })),
+			[
 				{ level: 1, title: "Chapter 1" },
 				{ level: 2, title: "1.1 Detail" },
 				{ level: 1, title: "Chapter 2" },
 			],
-		});
+		);
+		assert.match(outline.sections[0]!.preview ?? "", /Alpha text/);
 		const cut = await applySourceScope({ name: "n.docx", bytes: docx }, { kind: "sections", sections: [0], titles: ["Chapter 1"] });
 		const text = Buffer.from(cut.bytes).toString();
 		assert.match(text, /Alpha text/);
@@ -138,6 +146,13 @@ describe("sections", () => {
 });
 
 describe("PDF page limits and the source list", () => {
+	it("renders a page thumbnail for the in-app browser", async () => {
+		const fixture = path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures", "sample-3page.pdf");
+		const png = await renderPdfPreviewPage(fixture, 2, 72);
+		assert.ok(png && png.byteLength > 100);
+		assert.equal(png[0], 0x89);
+		assert.equal(await renderPdfPreviewPage(fixture, 99), null);
+	});
 	it("the sidecar round-trips beside the saved file", () => {
 		const file = tmpFile("doc.pdf", new Uint8Array([37, 80, 68, 70]));
 		assert.equal(readPdfPageLimit(file), null);

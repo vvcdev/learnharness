@@ -43,11 +43,14 @@ export function parseSourceScope(value: unknown, fileName: string): SourceScope 
 	return null;
 }
 
-/** A file's outline, for the chip's picker. */
+/** A file's outline, for the chip's picker / in-app browser. */
 export type SourceOutline =
 	| { kind: "pages"; count: number }
-	| { kind: "slides"; count: number; titles: string[] }
-	| { kind: "sections"; sections: Array<{ level: number; title: string }> }
+	| { kind: "slides"; count: number; titles: string[]; /** First lines of each slide for browsing. */ previews?: string[] }
+	| {
+			kind: "sections";
+			sections: Array<{ level: number; title: string; /** Short body peek for browsing. */ preview?: string }>;
+	  }
 	| { kind: "none" };
 
 /** Parse "3-7, 12" against 1..max — strict: every token must be a page

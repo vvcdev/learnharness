@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import yauzl from "yauzl";
 import { pdfPageCount } from "../agent/subagents/pdf-ops.ts";
+import { realHeadless } from "../agent/subagents/headless.ts";
 import { parseRangeSpec, scopeKindFor, type SourceOutline, type SourceScope } from "../core/source-scope.ts";
 
 /**
@@ -111,12 +112,38 @@ export async function sourceOutline(filePath: string, fileName: string): Promise
 	const bytes = new Uint8Array(fs.readFileSync(filePath));
 	if (kind === "slides") {
 		const slides = await slideTexts(bytes);
-		return { kind: "slides", count: slides.length, titles: slides.map((s) => s.split("\n")[0]?.slice(0, 80) ?? "") };
+		return {
+			kind: "slides",
+			count: slides.length,
+			titles: slides.map((s) => s.split("\n")[0]?.slice(0, 80) ?? ""),
+			previews: slides.map((s) => s.slice(0, 280)),
+		};
 	}
 	if (kind === "sections") {
-		return { kind: "sections", sections: sectionsOf(await paragraphsOf(bytes, fileName)).map(({ level, title }) => ({ level, title })) };
+		const paras = await paragraphsOf(bytes, fileName);
+		return {
+			kind: "sections",
+			sections: sectionsOf(paras).map(({ level, title, start, end }) => ({
+				level,
+				title,
+				preview: paras
+					.slice(start, Math.min(end, start + 8))
+					.map((p) => p.text)
+					.filter((t) => t.trim())
+					.join(" ")
+					.slice(0, 220),
+			})),
+		};
 	}
 	return { kind: "none" };
+}
+
+/** One PDF page as a PNG thumbnail for the in-app scope browser. */
+export async function renderPdfPreviewPage(filePath: string, page: number, dpi = 72): Promise<Uint8Array | null> {
+	if (!Number.isInteger(page) || page < 1) return null;
+	const rendered = await realHeadless.renderPdfPages(filePath, [page], { dpi });
+	const png = rendered[0]?.png;
+	return png ?? null;
 }
 
 /** A limited file, ready to save: slides/sections become a Markdown cut
