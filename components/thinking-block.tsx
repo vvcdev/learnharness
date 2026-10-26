@@ -72,6 +72,7 @@ export function ThinkingBlock({
 	dataCommit,
 	defaultOpen = false,
 	inCard = false,
+	voice = false,
 }: {
 	label?: string;
 	text: string;
@@ -82,6 +83,10 @@ export function ThinkingBlock({
 	defaultOpen?: boolean;
 	/** On the card's own background: no band (the accent read too light). */
 	inCard?: boolean;
+	/** He also SPOKE (voice-notes wave, owner 2026-10-25): a "+ VOICE"
+	 *  tag beside the label — the transcript itself never renders. With
+	 *  no typed text the row is just the tag (nothing to expand). */
+	voice?: boolean;
 }) {
 	const [open, setOpen] = useState(() => resolveUserThinkingOpen(defaultOpen));
 	// ⌘T: an explicit global set overrides every row (once set, rows re-sync).
@@ -113,6 +118,12 @@ export function ThinkingBlock({
 				inCard ? "" : "bg-card",
 			)}
 		>
+			{!text.trim() ? (
+				<div className="flex w-full items-center gap-2 font-medium uppercase tracking-wide text-muted-foreground">
+					{label}
+					{voice && <VoiceTag />}
+				</div>
+			) : (
 			<button
 				type="button"
 				data-testid={testId ? `${testId}-trigger` : undefined}
@@ -124,11 +135,21 @@ export function ThinkingBlock({
 				className="flex w-full items-center gap-2 font-medium uppercase tracking-wide text-muted-foreground transition-colors hover:text-foreground"
 			>
 				{label}
+				{voice && <VoiceTag />}
 				<ChevronDownIcon className={cn("size-4 shrink-0 transition-transform", open ? "rotate-180" : "rotate-0")} />
 			</button>
-			{open && (
+			)}
+			{open && text.trim() && (
 				<span className="lh-prose mt-1.5 block whitespace-pre-wrap text-[15px] italic text-foreground/50">{text}</span>
 			)}
 		</div>
+	);
+}
+
+function VoiceTag() {
+	return (
+		<span data-testid="voice-tag" className="text-muted-foreground/70">
+			+ voice
+		</span>
 	);
 }

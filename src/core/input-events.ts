@@ -49,7 +49,7 @@ export type ChatInput =
 	 *  thinking on the ACTIVE problem — one lane (owner 2026-10-05):
 	 *  whether it claims an answer is read from the text. One
 	 *  problem may carry many submissions; each is its own turn. */
-	| { type: "thinking"; problemCallId: string; text: string }
+	| { type: "thinking"; problemCallId: string; text: string; spoken?: string }
 	/** The practice move-on signal (owner round 16): the learner's
 	 *  explicit go-ahead during the between-problems pause — the Next
 	 *  chip or Enter on an empty composer. Practice sessions only, and
@@ -174,10 +174,20 @@ export function parseChatInput(input: unknown): ChatInput {
 			if (typeof i.problemCallId !== "string" || i.problemCallId.length === 0) {
 				throw new ChatInputError("thinking input requires problemCallId");
 			}
-			if (typeof i.text !== "string" || i.text.trim().length === 0) {
-				throw new ChatInputError("thinking input requires non-empty text");
+			// Voice notes (owner 2026-10-25): a spoken-only submission is
+			// real thinking — typed text OR spoken transcript, at least one.
+			if (typeof i.text !== "string" || (i.spoken !== undefined && typeof i.spoken !== "string")) {
+				throw new ChatInputError("thinking input requires string text");
 			}
-			return { type: "thinking", problemCallId: i.problemCallId, text: i.text };
+			if (i.text.trim().length === 0 && !(typeof i.spoken === "string" && i.spoken.trim().length > 0)) {
+				throw new ChatInputError("thinking input requires non-empty text or spoken thinking");
+			}
+			return {
+				type: "thinking",
+				problemCallId: i.problemCallId,
+				text: i.text,
+				...(typeof i.spoken === "string" && i.spoken.trim() ? { spoken: i.spoken } : {}),
+			};
 		case "next":
 			return { type: "next" };
 		default:
@@ -215,7 +225,7 @@ export function inputAppends(
 			if (!active || active.toolCallId !== input.problemCallId) {
 				throw new ChatInputError("thinking input targets no active problem");
 			}
-			return [...dismissalConclusion(record), newThinkingMessage(input.problemCallId, input.text)];
+			return [...dismissalConclusion(record), newThinkingMessage(input.problemCallId, input.text, input.spoken)];
 		}
 		case "next": {
 			// Honest 400s, the thinking gate's discipline: the signal is a

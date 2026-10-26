@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Loader2Icon, MicIcon } from "lucide-react";
 import { Hint } from "@/components/ui/hint";
 
@@ -237,16 +237,47 @@ export function rmsToMeter(rms: number): number {
  * sibling subtree far from the hook's owner, and there is exactly one
  * window, one pending question, one target at a time.
  */
-let questionTarget: ((text: string) => void) | null = null;
+let questionTarget: DictationAppend | null = null;
+
+/** A target's append: the run's joined transcript + its recorded length
+ *  in seconds (voice-notes wave, owner 2026-10-25 — the voice box totals
+ *  durations; text targets ignore the second argument). */
+export type DictationAppend = (text: string, seconds: number) => void;
 
 /* Is a dictation run live on this page? The Esc chain (keyboard wave A,
  * components/keyboard-shortcuts.tsx) needs a SYNCHRONOUS answer — the
  * stop handler can't report back through a CustomEvent. Set at start(),
  * cleared in cleanup() (every terminal path runs through cleanup). */
 let dictationActiveFlag = false;
+const activeListeners = new Set<() => void>();
+
+function setDictationActive(active: boolean) {
+	if (dictationActiveFlag === active) return;
+	dictationActiveFlag = active;
+	for (const l of activeListeners) l();
+}
 
 export function isDictationActive(): boolean {
 	return dictationActiveFlag;
+}
+
+/** Reactive twin of isDictationActive — the voice box's mic lights up
+ *  while any run is live (voice-notes wave, owner 2026-10-25). */
+export function useDictationActive(): boolean {
+	return useSyncExternalStore(
+		(l) => {
+			activeListeners.add(l);
+			return () => activeListeners.delete(l);
+		},
+		() => dictationActiveFlag,
+		() => false,
+	);
+}
+
+/** Start/stop the page's dictation from anywhere (the voice box's mic) —
+ *  the same seam ⌘D rides. */
+export function toggleDictation() {
+	window.dispatchEvent(new Event("lh:kbd-toggle-dictation"));
 }
 
 /* The finisher registry: submit paths FAR from the hook's owner (the
@@ -270,7 +301,7 @@ export function joinDictation(current: string, final: string): string {
  * unmount guard is identity-based so dev-mode double-invoked effects
  * can't clear another claimant.
  */
-export function useDictationTarget(append: (text: string) => void, claimed: boolean) {
+export function useDictationTarget(append: DictationAppend, claimed: boolean) {
 	useEffect(() => {
 		if (!claimed) return;
 		questionTarget = append;
@@ -350,6 +381,10 @@ export function useDictation({ append }: { append: (text: string) => void }): Di
 	/** Resolvers waiting for the run to fully end (finish(), owner
 	 *  2026-10-01): released by cleanup() — every terminal path runs it. */
 	const waitersRef = useRef<Array<() => void>>([]);
+	/** The run's recorded span (voice-notes wave): start click → stop
+	 *  (or teardown) — the length reported to the target at flush. */
+	const runStartRef = useRef(0);
+	const runStopRef = useRef<number | null>(null);
 	/** This run's engine (set at start) and, for Handy, its captured
 	 *  frames — the whole run, uncapped (32KB/s), POSTed once at stop. */
 	const engineRef = useRef<DictationEngine>("none");
@@ -362,13 +397,14 @@ export function useDictation({ append }: { append: (text: string) => void }): Di
 		if (bufferRef.current.length === 0) return;
 		const text = bufferRef.current.join(" ");
 		bufferRef.current = [];
-		(questionTarget ?? appendRef.current)(text);
+		const seconds = Math.max(0, Math.round(((runStopRef.current ?? Date.now()) - runStartRef.current) / 1000));
+		(questionTarget ?? appendRef.current)(text, seconds);
 	}, []);
 
 	/** Full teardown of one run's machinery. Idempotent; generation-guarded by callers. */
 	const cleanup = useCallback(() => {
 		genRef.current++;
-		dictationActiveFlag = false;
+		setDictationActive(false);
 		flush(); // the deferred transcript appears when the run ends (owner round 2)
 		if (safetyRef.current) {
 			clearTimeout(safetyRef.current);
@@ -466,7 +502,9 @@ export function useDictation({ append }: { append: (text: string) => void }): Di
 	);
 
 	const start = useCallback(async () => {
-		dictationActiveFlag = true;
+		setDictationActive(true);
+		runStartRef.current = Date.now();
+		runStopRef.current = null;
 		setError(null);
 		setPhase("connecting");
 		reconnectsRef.current = 0;
@@ -583,6 +621,7 @@ export function useDictation({ append }: { append: (text: string) => void }): Di
 		const gen = genRef.current;
 		if (phase !== "recording" && phase !== "connecting") return;
 		setPhase("stopping");
+		runStopRef.current = Date.now();
 
 		// Mic dies FIRST — no more audio enqueues (dictate pattern). The
 		// per-run nodes die with it; the AudioContext stays (mitigation C).

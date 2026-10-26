@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback } from "react";
-import { joinDictation, useDictationTarget } from "@/components/dictation";
+import { useDictationTarget } from "@/components/dictation";
+import { VoiceNotesBox, type VoiceNotes } from "@/components/voice-notes";
 
 /**
  * The reading-thinking field (owner design 2026-10-03, "two questions per
@@ -16,7 +16,9 @@ import { joinDictation, useDictationTarget } from "@/components/dictation";
  * Dictation: while the check sits UNREVEALED this field is the primary
  * target (the dock releases its claim — dictated reading-thoughts land
  * here, not in the hidden quiz field); once the learner reveals the
- * check, the dock reclaims and this field is plain typing.
+ * check, the dock reclaims and this field is plain typing. Dictated
+ * speech never enters the text: it lands in the separate voice box
+ * (voice-notes wave, owner 2026-10-25).
  */
 export function ReadingThinkingField({
 	value,
@@ -24,9 +26,17 @@ export function ReadingThinkingField({
 	onEscape,
 	onOpen,
 	claim,
+	voice,
+	onVoice,
+	onVoiceClear,
 }: {
 	value: string;
 	onChange: (v: string) => void;
+	/** The voice box (voice-notes wave, owner 2026-10-25): dictation while
+	 *  this field claims lands here as hidden voice notes, never the text. */
+	voice: VoiceNotes;
+	onVoice: (text: string, seconds: number) => void;
+	onVoiceClear: () => void;
 	/** Esc in the field stops dictation (threaded from the page's hook). */
 	onEscape?: () => void;
 	/** The check waits CLOSED — Enter opens it (owner, keyboard round
@@ -37,16 +47,9 @@ export function ReadingThinkingField({
 	/** Primary dictation claim — true while the check is behind its reveal. */
 	claim: boolean;
 }) {
-	useDictationTarget(
-		useCallback(
-			(t: string) => {
-				onChange(joinDictation(value, t));
-			},
-			[value, onChange],
-		),
-		claim,
-	);
+	useDictationTarget(onVoice, claim);
 	return (
+		<>
 		<div
 			data-testid="reading-thinking-field"
 			className="pointer-events-auto mb-2 rounded-2xl border bg-card/60 px-3 py-2 transition-colors focus-within:border-primary/50"
@@ -99,5 +102,10 @@ export function ReadingThinkingField({
 				className="field-sizing-content lh-input max-h-40 w-full resize-none bg-transparent py-0.5 outline-none placeholder:text-muted-foreground/70"
 			/>
 		</div>
+		{/* Its voice box — separate from the typing box (owner 2026-10-25).
+		    The mic records here only while this field holds the claim;
+		    after the reveal the dock's own voice box takes the speech. */}
+		<VoiceNotesBox value={voice} onClear={onVoiceClear} canRecord={claim} className="pointer-events-auto mb-2" />
+		</>
 	);
 }

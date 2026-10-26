@@ -203,6 +203,10 @@ export const HANDOFF_TEXT =
  *  not declared by a button. */
 export const THINKING_LABEL = "Your thinking";
 
+/** The spoken twin's section label (voice-notes wave, owner 2026-10-25):
+ *  transcribed voice notes ride the same submission, labeled apart. */
+export const SPOKEN_THINKING_LABEL = "Spoken thinking (transcribed)";
+
 /** The conclude tool's ack — shared by the executed call (agent layer) and
  *  the dismissal-synthesized pair (input-events), so a concluded problem
  *  reads identically to the model however it concluded. Owner round 16:

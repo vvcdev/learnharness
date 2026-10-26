@@ -50,8 +50,14 @@ export function AnsweredCard({ answer, input }: { answer: QuestionAnswerData; in
 		    rendered as its own user-side block ABOVE the card, the unified
 		    ThinkingBlock, instead of an inset inside the answer. Same muted
 		    rail as before; the label is now plain "Your thinking". */}
-		{answer.readingThinking && (
-			<ThinkingBlock testId="reading-thinking-block" label="YOUR THINKING" text={answer.readingThinking} defaultOpen />
+		{(answer.readingThinking || answer.spokenReadingThinking) && (
+			<ThinkingBlock
+				testId="reading-thinking-block"
+				label="YOUR THINKING"
+				text={answer.readingThinking ?? ""}
+				voice={Boolean(answer.spokenReadingThinking)}
+				defaultOpen
+			/>
 		)}
 		{/* [&>*:last-child]:mb-0 (owner round, 2026-10-07): on ask cards the
 		    thinking row is the last child — its my-3 stacked with the card's
@@ -179,7 +185,7 @@ export function AnsweredCard({ answer, input }: { answer: QuestionAnswerData; in
 				<div className="mt-2 text-sm text-muted-foreground">Answered “I don't know”.</div>
 			)}
 
-			{(answer.thinking ?? answer.note) && (
+			{(answer.thinking ?? answer.note ?? answer.spokenThinking) && (
 				/* The SAME unified row (owner round, 2026-10-05): the quiz answer's
 				    thinking is the identical collapsible ThinkingBlock — one
 				    geometry, but NO band on the card (owner round five, 2026-10-07:
@@ -188,6 +194,7 @@ export function AnsweredCard({ answer, input }: { answer: QuestionAnswerData; in
 					testId="your-thinking"
 					label="YOUR THINKING"
 					text={answer.thinking ?? answer.note ?? ""}
+					voice={Boolean(answer.spokenThinking)}
 					inCard
 				/>
 			)}

@@ -1,10 +1,11 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { ChevronRightIcon } from "lucide-react";
 import { MessageResponse } from "@/components/ai-elements/message";
 import { Button } from "@/components/ui/button";
-import { joinDictation, useDictationTarget } from "@/components/dictation";
+import { finishDictation, isDictationActive, useDictationTarget } from "@/components/dictation";
+import { useVoiceNotes, voiceText, VoiceNotesBox } from "@/components/voice-notes";
 import { useEnterSubmits } from "@/components/enter-submits";
 import { cn } from "@/lib/utils";
 import { repairMathForDisplay } from "@/src/core";
@@ -38,8 +39,9 @@ export interface PracticeDockProps {
 	/** Collapse state, owned by the DockOverlay. */
 	expanded: boolean;
 	onExpand: () => void;
-	/** text — POST {type:"thinking"} (one lane; the register is read from the text). */
-	onSubmit: (text: string) => void;
+	/** text — POST {type:"thinking"} (one lane; the register is read from the text).
+	 *  `spoken`: the voice box's transcript (owner 2026-10-25), never shown. */
+	onSubmit: (text: string, spoken?: string) => void;
 	/** Escape in the thinking field stops dictation (threaded from the page). */
 	onEscape?: () => void;
 	/** Compaction is running for this chat (owner round 14): the thinking
@@ -56,25 +58,29 @@ export function PracticeDock({ problemCallId, input, expanded, onExpand, onSubmi
 	// the tail, never a stale closure.
 	const thinkingRef = useRef("");
 
-	useDictationTarget(
-		useCallback(
-			(t: string) => {
-				const v = joinDictation(thinkingRef.current, t);
-				thinkingRef.current = v;
-				setThinking(v);
-			},
-			[],
-		),
-		true,
-	);
+	/* Spoken thinking (voice-notes wave, owner 2026-10-25): dictation lands
+	 * in the separate voice box as hidden notes — never in the text. */
+	const voice = useVoiceNotes();
+	useDictationTarget(voice.add, true);
 
 	const submit = () => {
 		if (compactionRunning) return;
+		// Finish a live run first so its last words reach the voice box
+		// (the question dock's "nothing gets lost" law).
+		if (isDictationActive()) {
+			void finishDictation().then(doSubmit);
+			return;
+		}
+		doSubmit();
+	};
+	const doSubmit = () => {
 		const text = thinkingRef.current.trim();
-		if (text.length === 0) return;
+		const spoken = voiceText(voice.ref.current);
+		if (text.length === 0 && !spoken) return;
 		thinkingRef.current = "";
 		setThinking("");
-		onSubmit(text);
+		voice.clear();
+		onSubmit(text, spoken);
 	};
 
 	/* ENTER SUBMITS FROM ANYWHERE (owner round 6, 2026-10-05): dictation
@@ -161,7 +167,7 @@ export function PracticeDock({ problemCallId, input, expanded, onExpand, onSubmi
 					<Button
 						type="button"
 						data-testid="practice-send"
-						disabled={thinking.trim().length === 0 || compactionRunning}
+						disabled={(thinking.trim().length === 0 && voice.value.notes.length === 0) || compactionRunning}
 						onClick={() => submit()}
 						className="ml-auto h-9 rounded-[6px] px-3.5 text-sm font-medium"
 					>
@@ -169,6 +175,8 @@ export function PracticeDock({ problemCallId, input, expanded, onExpand, onSubmi
 					</Button>
 				</div>
 			</div>
+			{/* The voice box — separate from the typing box (owner 2026-10-25). */}
+			<VoiceNotesBox value={voice.value} onClear={voice.clear} className="mx-1.5 mb-1.5" />
 		</div>
 	);
 }

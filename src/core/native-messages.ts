@@ -40,6 +40,7 @@ import {
 	CONCLUDE_ACK_TEXT,
 	HANDOFF_TEXT,
 	NEXT_PROBLEM_TEXT,
+	SPOKEN_THINKING_LABEL,
 	THINKING_LABEL,
 } from "./contracts/chat.ts";
 import { compactAnswerForModel, type QuestionAnswerData } from "./question-core.ts";
@@ -243,14 +244,20 @@ export function newGraphContextMessage(picks: readonly GraphContextPick[], chain
  *  content label is the single "Your thinking"; `details` keeps the raw
  *  payload for the transcript card. One problem may carry many
  *  submissions. */
-export function newThinkingMessage(problemCallId: string, text: string): LhMarkerMessage {
+export function newThinkingMessage(problemCallId: string, text: string, spoken?: string): LhMarkerMessage {
+	// Voice notes (owner 2026-10-25): the spoken transcript is its own
+	// labeled section for the model; the card renders details.text only.
+	const sections = [
+		...(text.trim() ? [`${THINKING_LABEL}:\n${text}`] : []),
+		...(spoken ? [`${SPOKEN_THINKING_LABEL}:\n${spoken}`] : []),
+	];
 	return {
 		id: newMessageId(),
 		role: "custom",
 		customType: "practice-thinking",
-		content: `${THINKING_LABEL}:\n${text}`,
+		content: sections.join("\n\n"),
 		display: true,
-		details: { problemCallId, text },
+		details: { problemCallId, text, ...(spoken ? { spoken } : {}) },
 		timestamp: Date.now(),
 	};
 }

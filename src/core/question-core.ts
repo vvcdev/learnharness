@@ -462,6 +462,11 @@ export interface QuestionAnswerData {
 	 *  2026-10-03) — a separate channel from `thinking`, captured by the
 	 *  reading field and riding the check answer. Absent when empty. */
 	readingThinking?: string;
+	/** The SPOKEN twins of the two thinking channels (voice-notes wave,
+	 *  owner 2026-10-25): transcribed voice notes, never shown to the
+	 *  learner — stored apart so his cards render only what he typed. */
+	spokenThinking?: string;
+	spokenReadingThinking?: string;
 	confidence?: number; // quiz only: the learner's stated probability (0-100, raw) that his selected answer is correct — never sent on "I don't know" (owner, 2026-10-01)
 	correct?: boolean; // quiz only
 	correctIndices?: number[]; // quiz only (rendering)
@@ -489,6 +494,8 @@ export interface AnswerRequest {
 	text?: string; // ask text-mode
 	thinking?: string; // the reasoning-on-the-question channel (was `note`)
 	readingThinking?: string; // the thinking-while-reading channel (check answers)
+	spokenThinking?: string; // voice notes on the question (never shown back)
+	spokenReadingThinking?: string; // voice notes while reading (never shown back)
 	confidence?: number; // quiz only: 0-100 raw probability — 50 is a real coin flip, always sent (owner, 2026-10-01)
 }
 
@@ -701,6 +708,9 @@ export function buildAnswer(qd: QuestionData, req: AnswerRequest, tool?: string)
 		answers: [],
 		thinking: req.thinking?.trim() || undefined,
 		readingThinking: req.readingThinking?.trim() || undefined,
+		// Spoken twins only when present — older answers' shapes stay exact.
+		...(req.spokenThinking?.trim() ? { spokenThinking: req.spokenThinking.trim() } : {}),
+		...(req.spokenReadingThinking?.trim() ? { spokenReadingThinking: req.spokenReadingThinking.trim() } : {}),
 		answeredAt: new Date().toISOString(),
 	};
 	// resolve selected option values → OptionAnswer (in display order)
@@ -783,5 +793,9 @@ export function compactAnswerForModel(ad: QuestionAnswerData): Record<string, un
 	const thinking = ad.thinking ?? ad.note;
 	if (thinking) out.thinking = thinking;
 	if (ad.readingThinking) out.thinkingWhileReading = ad.readingThinking;
+	// Their spoken twins (voice-notes wave) — keyed apart so the model
+	// knows which was said out loud.
+	if (ad.spokenThinking) out.spokenThinking = ad.spokenThinking;
+	if (ad.spokenReadingThinking) out.spokenThinkingWhileReading = ad.spokenReadingThinking;
 	return out;
 }

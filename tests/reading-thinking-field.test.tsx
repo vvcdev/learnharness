@@ -4,11 +4,19 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { ReadingThinkingField } from "../components/reading-thinking.tsx";
+import { EMPTY_VOICE_NOTES } from "../components/voice-notes.tsx";
 
 describe("the reading-thinking field (owner round, 2026-10-07)", () => {
 	it("carries vertical padding — the 1px-scrollbar absorption", () => {
 		const html = renderToStaticMarkup(
-			<ReadingThinkingField value="" onChange={() => {}} claim={false} />,
+			<ReadingThinkingField
+				value=""
+				onChange={() => {}}
+				voice={EMPTY_VOICE_NOTES}
+				onVoice={() => {}}
+				onVoiceClear={() => {}}
+				claim={false}
+			/>,
 		);
 		// The fix (empirically diagnosed): Source Sans 3's font box (22px at
 		// 16px) exceeds lh-input's 20px line box by 1px; Chromium counts that

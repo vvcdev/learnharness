@@ -30,6 +30,7 @@ import { blurAfterPointerClick } from "@/components/focus-hygiene";
 import { dockStateKey } from "@/components/dock-state-key";
 import { QueuedSteersBody, type QueuedSteerLine } from "@/components/queued-steers";
 import { finishDictation, joinDictation, useDictation } from "@/components/dictation";
+import { useVoiceNotes, voiceText, type VoiceNotes } from "@/components/voice-notes";
 import { useFieldCycle } from "@/components/field-cycle";
 import { JobsContext } from "@/components/jobs-context";
 import { StatsBar } from "@/components/stats-bar";
@@ -404,12 +405,14 @@ export function Chat({
 			if (p) {
 				const question = (p.input as { question?: string } | null)?.question ?? "";
 				const reading = readingThinkingRef.current.trim() || undefined;
+				const spokenReading = voiceText(readingVoiceRef.current);
 				clearReadingThinking();
 				const answer = dismissedAnswer(toolQuestionKind(p.tool), question);
-				void dismissQuestion(
-					p.toolCallId,
-					reading ? { ...answer, readingThinking: reading } : answer,
-				);
+				void dismissQuestion(p.toolCallId, {
+					...answer,
+					...(reading ? { readingThinking: reading } : {}),
+					...(spokenReading ? { spokenReadingThinking: spokenReading } : {}),
+				});
 				if (busyRef.current) abortInFlightTurn();
 				return;
 			}
@@ -490,10 +493,10 @@ export function Chat({
 	// the dock stays mounted (the problem is still active until the agent
 	// concludes).
 	const submitThinking = useCallback(
-		(text: string) => {
+		(text: string, spoken?: string) => {
 			const problem = activeProblemRef.current;
 			if (!problem) return;
-			void send({ type: "thinking", problemCallId: problem.toolCallId, text });
+			void send({ type: "thinking", problemCallId: problem.toolCallId, text, ...(spoken ? { spoken } : {}) });
 		},
 		[send],
 	);
@@ -515,6 +518,11 @@ export function Chat({
 	 * separate `readingThinking` field. Reset per pending question. */
 	const [readingThinking, setReadingThinking] = useState("");
 	const readingThinkingRef = useRef("");
+	/** Its spoken twin (voice-notes wave, owner 2026-10-25): the reading
+	 *  field's voice box — rides the same carriers as the typed draft. */
+	const readingVoice = useVoiceNotes();
+	const readingVoiceRef = readingVoice.ref;
+	const clearReadingVoice = readingVoice.clear;
 
 	// ⌘T (toggle-user-thinking, owner round 2026-10-07): set EVERY user
 	// thinking row to one state — transcript rows default open, so the
@@ -531,13 +539,15 @@ export function Chat({
 	const clearReadingThinking = useCallback(() => {
 		readingThinkingRef.current = "";
 		setReadingThinking("");
-	}, []);
+		clearReadingVoice();
+	}, [clearReadingVoice]);
 	const pendingQuestionId = pending?.toolCallId ?? null;
 	useEffect(() => {
 		// A new pending question never inherits the previous one's draft.
 		readingThinkingRef.current = "";
 		setReadingThinking("");
-	}, [pendingQuestionId]);
+		clearReadingVoice();
+	}, [pendingQuestionId, clearReadingVoice]);
 
 	// The phase at every message (one linear fold): the transcript draws a
 	// color-coded dotted divider at each boundary; the header chip reads the
@@ -1623,6 +1633,9 @@ export function Chat({
 					requiresReveal={requiresReveal}
 					readingThinking={readingThinking}
 					onReadingThinking={applyReadingThinking}
+					readingVoice={readingVoice.value}
+					onReadingVoice={readingVoice.add}
+					onReadingVoiceClear={clearReadingVoice}
 					phase={phases.at(-1) ?? "probe"}
 					turns={turns}
 					contextTokens={contextTokens}
@@ -1691,8 +1704,13 @@ export function Chat({
 						// reading-thinking draft rides along (owner 2026-10-03) — the
 						// check answer is its only carrier.
 						const reading = readingThinkingRef.current.trim() || undefined;
+						const spokenReading = voiceText(readingVoiceRef.current);
 						clearReadingThinking();
-						submitAnswer(pending.tool, pending.toolCallId, reading ? { ...output, readingThinking: reading } : output);
+						submitAnswer(pending.tool, pending.toolCallId, {
+							...output,
+							...(reading ? { readingThinking: reading } : {}),
+							...(spokenReading ? { spokenReadingThinking: spokenReading } : {}),
+						});
 					}}
 				/>
 				</Conversation>
@@ -1854,6 +1872,9 @@ function DockOverlay({
 	requiresReveal,
 	readingThinking,
 	onReadingThinking,
+	readingVoice,
+	onReadingVoice,
+	onReadingVoiceClear,
 	phase,
 	turns,
 	contextTokens,
@@ -1878,13 +1899,16 @@ function DockOverlay({
 	 *  question (the composer is replaced); null in teaching sessions. */
 	practice: { toolCallId: string; input: unknown } | null;
 	/** (commit, text) — the practice dock's two submit lanes. */
-	onSubmitThinking: (text: string) => void;
+	onSubmitThinking: (text: string, spoken?: string) => void;
 	/** Teach-phase pending question: arrives collapsed behind the reveal button (W5). */
 	requiresReveal: boolean;
 	/** The reading-thinking draft (owner 2026-10-03) — owned by ChatView so
 	 *  the submit + dismissal seams (outside this overlay) can merge it. */
 	readingThinking: string;
 	onReadingThinking: (v: string) => void;
+	readingVoice: VoiceNotes;
+	onReadingVoice: (text: string, seconds: number) => void;
+	onReadingVoiceClear: () => void;
 	/** Session phase at the pending question — scales the thinking field. */
 	phase: Phase3;
 	/** The session's usage log — the stats bar beneath the composer folds it. */
@@ -2307,6 +2331,9 @@ function DockOverlay({
 						<ReadingThinkingField
 							value={readingThinking}
 							onChange={onReadingThinking}
+							voice={readingVoice}
+							onVoice={onReadingVoice}
+							onVoiceClear={onReadingVoiceClear}
 							onEscape={dictationCancel}
 							onOpen={
 								!expanded

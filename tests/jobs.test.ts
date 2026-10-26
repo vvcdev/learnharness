@@ -1385,7 +1385,7 @@ describe("prompt composition", () => {
 			["prober", prober],
 		] as const) {
 			assert.ok(prompt.includes("asymmetry"), `${name} carries the option craft (moved out of tool descriptions)`);
-			assert.ok(prompt.includes("TRANSCRIBED SPEECH"), `${name} reads dictated thinking leniently`);
+			assert.ok(prompt.includes("may also arrive SPOKEN"), `${name} reads spoken thinking leniently`);
 			assert.ok(prompt.includes("thinkingWhileReading"), `${name} knows the reading channel`);
 		}
 		// the cycle is teach-phase doctrine — it never composes into the prober
