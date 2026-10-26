@@ -7,8 +7,8 @@ import { parseDesmosInput, type ArtifactPartProps } from "@/src/core";
  * The Desmos graph card (owner 2026-10-26): an interactive graphing
  * calculator built from the desmos call's arguments — the learner can
  * pan, zoom, edit, and drag sliders. The API script loads once per page
- * (Desmos's public key — a personal app). Inverted colors match the
- * app's dark theme.
+ * (Desmos's public key — a personal app). Desmos's own light theme
+ * (owner 2026-10-26).
  */
 
 const DESMOS_SRC = "https://www.desmos.com/api/v1.11/calculator.js?apiKey=dcb31709b452b1cf9dc26972add0fda6";
@@ -61,7 +61,7 @@ export function DesmosCard({ part }: ArtifactPartProps) {
 			.then((Desmos) => {
 				if (cancelled || !ref.current) return;
 				calc = Desmos.GraphingCalculator(ref.current, {
-					invertedColors: true,
+					invertedColors: false,
 					keypad: false,
 					settingsMenu: false,
 					border: false,
@@ -90,7 +90,7 @@ export function DesmosCard({ part }: ArtifactPartProps) {
 			{error ? (
 				<div className="p-4 text-sm text-muted-foreground">{error}</div>
 			) : (
-				<div ref={ref} className="h-[380px] w-full" />
+				<div ref={ref} className="h-[380px] w-full bg-white" />
 			)}
 		</div>
 	);
