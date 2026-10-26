@@ -23,7 +23,8 @@ import { AnsweredCard } from "@/components/answered-card";
 import { artifactRenderers } from "@/components/artifacts";
 import { SubagentSteerCard } from "@/components/artifacts/steer-card";
 import { Composer } from "@/components/composer";
-import { SourcePicker, uploadLessonSources, type AttachedSource } from "@/components/source-attach";
+import { attachProjectFiles, projectSource, SourcePicker, uploadLessonSources, type AttachedSource } from "@/components/source-attach";
+import { useActiveProject, useProjectMention } from "@/components/project-mention";
 import { appendLessonSources } from "@/src/core";
 import { useEnterSubmits } from "@/components/enter-submits";
 import { blurAfterPointerClick } from "@/components/focus-hygiene";
@@ -740,6 +741,18 @@ export function Chat({
 	 * is null, and the thinking field is left alone by design. */
 	const dictationWasActiveRef = useRef(false);
 	const composerInputRef = useRef<HTMLTextAreaElement>(null);
+	/* @-mention the active project's files (owner 2026-10-26). */
+	const activeProject = useActiveProject();
+	const projectMention = useProjectMention({
+		project: activeProject,
+		inputRef: composerInputRef,
+		value: text,
+		setValue: (v) => applyText(v),
+		onPick: (file, projectId) => {
+			if (sourcesRef.current.some((f) => f.project === projectId && f.stored === file.stored)) return;
+			applySources([...sourcesRef.current, projectSource(projectId, file)]);
+		},
+	});
 	useEffect(() => {
 		if (dictation.active) {
 			dictationWasActiveRef.current = true;
@@ -1249,7 +1262,10 @@ export function Chat({
 		let textOut = t;
 		if (attached.length > 0) {
 			try {
-				textOut = appendLessonSources(t, await uploadLessonSources(chatId, attached));
+				// Uploaded files + @-mentioned project files (owner 2026-10-26).
+				const uploaded = await uploadLessonSources(chatId, attached);
+				const mentioned = await attachProjectFiles(chatId, attached.filter((f) => f.project));
+				textOut = appendLessonSources(t, [...uploaded, ...mentioned.paths]);
 			} catch (error) {
 				setSourceError(error instanceof Error ? error.message : "Could not save the sources.");
 				return;
@@ -1813,6 +1829,7 @@ export function Chat({
 							canSend={canSend}
 							voice={{ value: composerVoice.value, onClear: composerVoice.clear }}
 							images={composerImages}
+							mention={projectMention}
 							attachments={(row) => (
 								<SourcePicker
 									onImages={(files) => void composerImages.add(files)}

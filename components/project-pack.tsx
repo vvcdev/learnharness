@@ -6,6 +6,8 @@ import { useRouter } from "next/navigation";
 import { CheckIcon, FolderIcon, PlusIcon, XIcon } from "lucide-react";
 import type { ProjectSummary } from "@/src/core";
 
+export const ACTIVE_PROJECT_CHANGED_EVENT = "lh:active-project-changed";
+
 async function loadProjects(): Promise<{ activeId: string | null; projects: ProjectSummary[] }> {
 	const res = await fetch("/api/projects", { cache: "no-store" });
 	if (!res.ok) return { activeId: null, projects: [] };
@@ -66,6 +68,8 @@ export function ProjectPackControl({
 		if (!res.ok) return;
 		setMenuOpen(false);
 		await refresh();
+		// The @-mention lists re-read the active project (owner 2026-10-26).
+		window.dispatchEvent(new CustomEvent(ACTIVE_PROJECT_CHANGED_EVENT));
 	};
 
 	return (

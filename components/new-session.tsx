@@ -13,7 +13,8 @@ import { useStrongKeyless, useZeroKeys, ZeroKeysPill } from "@/components/setup-
 import { StatsBar } from "@/components/stats-bar";
 import { ChainTableOverlay } from "@/components/chain-table.tsx";
 import { ComposerActions, NodePickerControl } from "@/components/composer-actions";
-import { openingWithSources, SourcePicker, type AttachedSource } from "@/components/source-attach";
+import { openingWithSources, projectSource, SourcePicker, type AttachedSource } from "@/components/source-attach";
+import { useActiveProject, useProjectMention } from "@/components/project-mention";
 import { ProjectPackControl } from "@/components/project-pack";
 import type { ChatSettings, GraphSnapshot, PracticeSettings, ProjectSummary } from "@/src/core";
 import { DEFAULT_PRACTICE_SETTINGS } from "@/src/core";
@@ -193,6 +194,19 @@ export function DraftShell({
 	/* Run end focuses the composer (owner, 2026-10-01): the hands are on
 	 * the keyboard from the stop — falling edge of `active` only. */
 	const composerInputRef = useRef<HTMLTextAreaElement>(null);
+	/* @-mention the active project's files (owner 2026-10-26): the session
+	 * then starts with just those. */
+	const activeProjectDetail = useActiveProject();
+	const mention = useProjectMention({
+		project: activeProjectDetail,
+		inputRef: composerInputRef,
+		value: text,
+		setValue: onChange,
+		onPick: (file, projectId) => {
+			if (!onSources || sources.some((f) => f.project === projectId && f.stored === file.stored)) return;
+			onSources([...sources, projectSource(projectId, file)]);
+		},
+	});
 	const dictationWasActiveRef = useRef(false);
 	useEffect(() => {
 		if (dictation.active) {
@@ -259,6 +273,7 @@ export function DraftShell({
 										canSend={canSend}
 										voice={voice ? { value: voice.value, onClear: voice.clear } : undefined}
 										images={images}
+										mention={mention}
 										attachments={onSources ? (row) => (
 											<SourcePicker
 												onImages={images ? (files) => void images.add(files) : undefined}

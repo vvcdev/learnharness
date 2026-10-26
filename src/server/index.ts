@@ -60,5 +60,7 @@ export {
 	deleteProject,
 	setActiveProject,
 	applyProjectToSession,
+	applyProjectFilesToSession,
+	projectFilePath,
 } from "./projects.ts";
 export { sessionCost } from "./pricing.ts";

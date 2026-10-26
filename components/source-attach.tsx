@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState, type ReactNode } from "react";
-import { PaperclipIcon, XIcon } from "lucide-react";
+import { FolderIcon, PaperclipIcon, XIcon } from "lucide-react";
 import { appendProjectContext, LESSON_SOURCE_ACCEPT, lessonSourceError, scopeChipLabel, scopeKindFor, type SourceScope } from "@/src/core";
 import { SourceScopePicker } from "@/components/source-scope-picker";
 import { cn } from "@/lib/utils";
@@ -15,7 +15,51 @@ export type AttachedSource = {
 	stored: string;
 	/** Limit to chosen pages / slides / sections (owner 2026-10-26). */
 	scope?: SourceScope;
+	/** An @-mentioned project file (owner 2026-10-26): the project's id;
+	 *  `stored` is the file's name inside the project, batchId unused. */
+	project?: string;
 };
+
+/** An @-mentioned project file as a chip. */
+export function projectSource(projectId: string, file: { name: string; stored: string }): AttachedSource {
+	return { name: file.name, size: 0, batchId: `project:${projectId}`, stored: file.stored, project: projectId };
+}
+
+/** Where a chip's scope picker reads the file's outline. */
+function outlineUrlFor(file: AttachedSource): string {
+	return file.project
+		? `/api/projects/${encodeURIComponent(file.project)}/files/${encodeURIComponent(file.stored)}/outline`
+		: `/api/uploads/outline?batch=${encodeURIComponent(file.batchId)}&stored=${encodeURIComponent(file.stored)}`;
+}
+
+/** Copy @-mentioned project files into a session (with their limits).
+ *  Returns the source-list lines plus the project's instructions. */
+export async function attachProjectFiles(
+	chatId: string,
+	files: readonly AttachedSource[],
+): Promise<{ paths: string[]; instructions: string }> {
+	const projectId = files[0]?.project;
+	if (!projectId) return { paths: [], instructions: "" };
+	const response = await fetch(`/api/chats/${chatId}/project`, {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({
+			projectId,
+			files: files.map((f) => ({ stored: f.stored, ...(f.scope ? { scope: f.scope } : {}) })),
+		}),
+	});
+	const payload = (await response.json().catch(() => ({}))) as {
+		paths?: string[];
+		notes?: (string | null)[];
+		instructions?: string;
+		error?: string;
+	};
+	if (!response.ok || !payload.paths) throw new Error(payload.error || "Could not add the project files.");
+	return {
+		paths: payload.paths.map((p, i) => (payload.notes?.[i] ? `${p} — ${payload.notes[i]}` : p)),
+		instructions: payload.instructions ?? "",
+	};
+}
 
 export async function stagePickedFiles(
 	current: readonly AttachedSource[],
@@ -56,7 +100,10 @@ export async function stagePickedFiles(
 	return { files: next, error: null };
 }
 
-export async function uploadLessonSources(chatId: string, files: readonly AttachedSource[]): Promise<string[]> {
+export async function uploadLessonSources(chatId: string, all: readonly AttachedSource[]): Promise<string[]> {
+	// @-mentioned project files ride their own route (attachProjectFiles).
+	const files = all.filter((f) => !f.project);
+	if (files.length === 0) return [];
 	const response = await fetch(`/api/chats/${chatId}/sources`, {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
@@ -79,7 +126,14 @@ export async function openingWithSources(
 ): Promise<string> {
 	const paths: string[] = [];
 	let instructions = "";
-	if (options.projectId || options.useActiveProject) {
+	// @-mentioned project files (owner 2026-10-26): the session starts with
+	// ONLY those (plus the instructions) instead of the whole project.
+	const mentioned = files.filter((f) => f.project);
+	if (mentioned.length > 0) {
+		const picked = await attachProjectFiles(chatId, mentioned);
+		paths.push(...picked.paths);
+		instructions = picked.instructions;
+	} else if (options.projectId || options.useActiveProject) {
 		const response = await fetch(`/api/chats/${chatId}/project`, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
@@ -144,6 +198,7 @@ function SourceChips({
 								}}
 								className={cn("flex min-w-0 items-center gap-1", scopable && "cursor-pointer hover:text-primary")}
 							>
+								{file.project && <FolderIcon className="size-3 shrink-0 text-muted-foreground" aria-label="Project file" />}
 								<span className="truncate">{file.name}</span>
 								{file.scope ? (
 									<span className="shrink-0 rounded-sm bg-accent px-1 text-[10px] text-muted-foreground">{scopeChipLabel(file.scope)}</span>
@@ -153,8 +208,7 @@ function SourceChips({
 							</button>
 							{picking?.key === key && (
 								<SourceScopePicker
-									batchId={file.batchId}
-									stored={file.stored}
+									outlineUrl={outlineUrlFor(file)}
 									scope={file.scope}
 									anchor={picking.anchor}
 									onChange={(scope) =>

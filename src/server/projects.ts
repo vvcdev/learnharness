@@ -1,3 +1,5 @@
+import { parseSourceScope, scopeNote } from "../core/source-scope.ts";
+import { applySourceScope, writePdfPageLimit } from "./source-scope.ts";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { PATHS } from "../../config.ts";
@@ -298,4 +300,52 @@ export function applyProjectToSession(
 	const saved = saveLessonSources(chatId, incoming, root);
 	if (!saved.ok) return { ok: false, status: saved.status, error: saved.error };
 	return { ok: true, paths: saved.paths, instructions: meta.instructions, projectId: id };
+}
+
+/** A project file's path on disk (the @-mention scope picker's outline). */
+export function projectFilePath(id: string, stored: string, root = PATHS.data): { path: string; name: string } | null {
+	const meta = readMeta(id, root);
+	const file = meta?.files.find((f) => f.stored === stored);
+	return file ? { path: path.join(filesDir(id, root), file.stored), name: file.name } : null;
+}
+
+/** @-mentioned project files (owner 2026-10-26): copy ONLY the picked
+ *  files into the session, each cut to its scope (slides/sections) or
+ *  page-limited (PDFs) — the same hard limit as an attached file. */
+export async function applyProjectFilesToSession(
+	chatId: string,
+	projectId: string,
+	picks: ReadonlyArray<{ stored: string; scope?: unknown }>,
+	root = PATHS.data,
+): Promise<
+	| { ok: true; paths: string[]; notes: (string | null)[]; instructions: string; projectId: string }
+	| { ok: false; status: number; error: string }
+> {
+	const meta = readMeta(projectId, root);
+	if (!meta) return { ok: false, status: 404, error: "Project not found." };
+	const files: Array<{ name: string; bytes: Uint8Array; pdfPages?: number[] }> = [];
+	const notes: (string | null)[] = [];
+	for (const pick of picks) {
+		const file = meta.files.find((f) => f.stored === pick.stored);
+		if (!file) return { ok: false, status: 404, error: "Project file not found." };
+		let bytes: Uint8Array;
+		try {
+			bytes = new Uint8Array(fs.readFileSync(path.join(filesDir(projectId, root), file.stored)));
+		} catch {
+			return { ok: false, status: 500, error: `Missing project file: ${file.name}` };
+		}
+		const scope = parseSourceScope(pick.scope, file.name);
+		try {
+			files.push(scope ? await applySourceScope({ name: file.name, bytes }, scope) : { name: file.name, bytes });
+		} catch (err) {
+			return { ok: false, status: 400, error: err instanceof Error ? err.message : "Couldn't limit the file." };
+		}
+		notes.push(scope ? scopeNote(scope) : null);
+	}
+	const saved = saveLessonSources(chatId, files, root);
+	if (!saved.ok) return { ok: false, status: saved.status, error: saved.error };
+	files.forEach((f, i) => {
+		if (f.pdfPages) writePdfPageLimit(saved.paths[i]!, f.pdfPages);
+	});
+	return { ok: true, paths: saved.paths, notes, instructions: meta.instructions, projectId };
 }

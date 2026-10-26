@@ -12,15 +12,14 @@ import { formatPages, parseRangeSpec, type SourceOutline, type SourceScope } fro
  * the staged file's outline once.
  */
 export function SourceScopePicker({
-	batchId,
-	stored,
+	outlineUrl,
 	scope,
 	anchor,
 	onChange,
 	onClose,
 }: {
-	batchId: string;
-	stored: string;
+	/** Where the file's outline comes from (a staged upload or a project file). */
+	outlineUrl: string;
 	scope?: SourceScope;
 	/** The chip it opens from — portaled above it (composer shells clip). */
 	anchor: HTMLElement;
@@ -51,7 +50,7 @@ export function SourceScopePicker({
 	const [error, setError] = useState<string | null>(null);
 	useEffect(() => {
 		let live = true;
-		fetch(`/api/uploads/outline?batch=${encodeURIComponent(batchId)}&stored=${encodeURIComponent(stored)}`)
+		fetch(outlineUrl)
 			.then(async (r) => {
 				const body = (await r.json().catch(() => ({}))) as SourceOutline & { error?: string };
 				if (!live) return;
@@ -62,7 +61,7 @@ export function SourceScopePicker({
 		return () => {
 			live = false;
 		};
-	}, [batchId, stored]);
+	}, [outlineUrl]);
 
 	return createPortal(
 		<div

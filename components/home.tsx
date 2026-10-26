@@ -7,7 +7,8 @@ import { GraphView } from "@/components/graph-view";
 import { MinimalHome } from "@/components/minimal-home";
 import { SetupDialog } from "@/components/setup-dialog";
 import { ComposerActions, NodePickerControl } from "@/components/composer-actions";
-import { openingWithSources, SourcePicker, type AttachedSource } from "@/components/source-attach";
+import { openingWithSources, projectSource, SourcePicker, type AttachedSource } from "@/components/source-attach";
+import { useActiveProject, useProjectMention } from "@/components/project-mention";
 import { ProjectPackControl } from "@/components/project-pack";
 import { useStrongKeyless, useZeroKeys, ZeroKeysPill } from "@/components/setup-cta";
 import { useDictation } from "@/components/dictation";
@@ -83,6 +84,21 @@ export function Home({
 	 * the keyboard from the stop. Falling edge only; this surface's only
 	 * dictation target IS this textarea, so no case-split is needed. */
 	const topicInputRef = useRef<HTMLTextAreaElement>(null);
+	/* @-mention the active project's files (owner 2026-10-26). */
+	const activeProjectDetail = useActiveProject();
+	const mention = useProjectMention({
+		project: activeProjectDetail,
+		inputRef: topicInputRef,
+		value: topic,
+		setValue: (v) => {
+			topicRef.current = v;
+			setTopic(v);
+		},
+		onPick: (file, projectId) => {
+			if (sourcesRef.current.some((f) => f.project === projectId && f.stored === file.stored)) return;
+			applySources([...sourcesRef.current, projectSource(projectId, file)]);
+		},
+	});
 	// Tab navigates INTO the topic composer (owner, keyboard round
 	// 2026-10-06): the only text field on this surface — and home's
 	// composer is its OWN textarea, not the shared Composer component,
@@ -339,8 +355,11 @@ export function Home({
 										onChange={(e) => {
 											topicRef.current = e.target.value;
 											setTopic(e.target.value);
+											mention.sync();
 										}}
+										onSelect={() => mention.sync()}
 										onKeyDown={(e) => {
+											if (mention.onKeyDown(e)) return;
 											if (e.key === "Escape" && dictation.active) {
 												e.preventDefault();
 												e.stopPropagation();
@@ -379,6 +398,7 @@ export function Home({
 							)}
 						/>
 						<VoiceNotesBox value={voice.value} onClear={voice.clear} className="mt-1.5" />
+						{mention.popover}
 					</form>
 					{/* Same as the chat view's under-composer stats bar (owner) — no
 					    session yet, so the LEFT side renders nothing (wave 7 sweep)

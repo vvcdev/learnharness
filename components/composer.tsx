@@ -5,6 +5,7 @@ import { ArrowRightIcon, CornerDownLeftIcon, SquareIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { VoiceNotesBox, type VoiceNotes } from "@/components/voice-notes";
 import { ImageDraftStrip, imageDropHandlers, useImagePasteTarget, type ImageDraft } from "@/components/learner-images";
+import type { ProjectMention } from "@/components/project-mention";
 
 /**
  * The chat composer — content row ONLY (the persistent rounded shell lives in
@@ -55,6 +56,7 @@ export function Composer({
 	attachments,
 	voice,
 	images,
+	mention,
 }: {
 	busy: boolean;
 	value: string;
@@ -90,6 +92,8 @@ export function Composer({
 	/** Show-your-work images (owner 2026-10-26): the paperclip routes
 	 *  picked images here; paste and drop land here too. */
 	images?: ImageDraft;
+	/** @-mention project files (owner 2026-10-26) — the list claims its keys. */
+	mention?: ProjectMention;
 }) {
 	useImagePasteTarget(images);
 	const act = () => {
@@ -132,8 +136,13 @@ export function Composer({
 			<textarea
 				ref={inputRef}
 				value={value}
-				onChange={(e) => onChange(e.target.value)}
+				onChange={(e) => {
+					onChange(e.target.value);
+					mention?.sync();
+				}}
+				onSelect={() => mention?.sync()}
 				onKeyDown={(e) => {
+					if (mention?.onKeyDown(e)) return;
 					if (e.key === "Escape" && onEscape) {
 						e.preventDefault();
 						e.stopPropagation();
@@ -167,6 +176,7 @@ export function Composer({
 			{images && <ImageDraftStrip draft={images} className="px-1.5 pb-1.5" />}
 			{attachments ? attachments(fields) : fields()}
 			{voice && <VoiceNotesBox value={voice.value} onClear={voice.onClear} className="mt-1.5" />}
+			{mention?.popover}
 		</form>
 	);
 }
