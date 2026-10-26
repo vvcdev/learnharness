@@ -15,7 +15,9 @@ import { useVoiceNotes, voiceOpeningQuery, voiceText, VoiceNotesBox } from "@/co
 import { useFieldCycle } from "@/components/field-cycle";
 import { SidebarToggle } from "@/components/sidebar";
 import { StatsBar } from "@/components/stats-bar";
-import type { ProjectSummary, TurnUsage } from "@/src/core";
+import type { PracticeSettings, ProjectSummary, TurnUsage } from "@/src/core";
+import { DEFAULT_PRACTICE_SETTINGS } from "@/src/core";
+import { PracticeFormatPicker } from "@/components/practice-format";
 
 /**
  * Home — the knowledge graph is the main view, full-bleed edge to edge
@@ -104,6 +106,8 @@ export function Home({
 	 *  the composer opens the picker; the picks seed the opening prompt).
 	 *  Not enforcing any input format — the picks are a convenience. */
 	const [mode, setMode] = useState<"teach" | "practice">("teach");
+	// The practice format (owner 2026-10-26): open-ended by default.
+	const [practice, setPractice] = useState<PracticeSettings>(DEFAULT_PRACTICE_SETTINGS);
 	const [practiceProps, setPracticeProps] = useState<{ id: string; name: string; statement: string }[]>([]);
 	const [chainSelectOpen, setChainSelectOpen] = useState(false);
 	// The chain table is CONTROLLED off this id set (the lifted pick).
@@ -156,7 +160,7 @@ export function Home({
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({
 					title: opening || spoken,
-					...(mode === "practice" ? { kind: "practice" } : {}),
+					...(mode === "practice" ? { kind: "practice", practice } : {}),
 					...(practiceProps.length > 0 ? { graphContext: { propositions: practiceProps } } : {}),
 				}),
 			});
@@ -327,7 +331,7 @@ export function Home({
 					<StatsBar
 						turns={[] as TurnUsage[]}
 						leadingSlot={
-							<div className="flex items-center gap-1.5">
+							<div className="flex flex-wrap items-center gap-1.5">
 								<div className="flex items-center gap-0.5 rounded-md border border-border/60 bg-background p-0.5" data-testid="home-mode-switch">
 									{(["teach", "practice"] as const).map((m) => (
 										<button
@@ -347,6 +351,7 @@ export function Home({
 										</button>
 									))}
 								</div>
+								{mode === "practice" && <PracticeFormatPicker value={practice} onChange={setPractice} />}
 								<ProjectPackControl onActiveChange={onActiveProject} />
 							</div>
 						}

@@ -110,6 +110,10 @@ export function useChatSession({ chatId, initialMessages, initiallyInFlight }: U
 			void model.submitAnswer(tool, toolCallId, output),
 		[model],
 	);
+	const answerSilently = useCallback(
+		(toolCallId: string, answer: QuestionAnswerData) => void model.answerSilently(toolCallId, answer),
+		[model],
+	);
 	const dismissQuestion = useCallback(
 		(toolCallId: string, answer: QuestionAnswerData) => void model.dismissQuestion(toolCallId, answer),
 		[model],
@@ -135,6 +139,7 @@ export function useChatSession({ chatId, initialMessages, initiallyInFlight }: U
 		steer,
 		submitAnswer,
 		dismissQuestion,
+		answerSilently,
 		dismissProblem,
 		setMessages,
 		adoptRecord,

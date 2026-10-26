@@ -76,6 +76,8 @@ export function AnsweredCard({ answer, input }: { answer: QuestionAnswerData; in
 					? "Probe"
 					: answer.tool === "recall"
 						? "Recall"
+						: answer.tool === "mcq" || answer.tool === "mcq_batch"
+							? "MCQ"
 						: isQuiz
 								? answer.questionType === "predict"
 									? "Prediction"

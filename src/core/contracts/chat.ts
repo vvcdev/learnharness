@@ -27,6 +27,40 @@ import type { EmissionStats } from "./graph.ts";
  *  practice agent, its two tools, no extraction, no graph writes. */
 export type ChatKind = "teach" | "practice";
 
+/** A practice session's format (owner 2026-10-26): open-ended problems
+ *  (the default — today's behavior), multiple choice, or a mix the agent
+ *  interleaves. MCQ paces single (one at a time, instant reveal) or in
+ *  batches (answer all, then reveal one by one); Mix is always single. */
+export type PracticeFormat = "open" | "mcq" | "mix";
+export type PracticePacing = "single" | "batch";
+export const PRACTICE_BATCH_SIZES = [5, 10, 20] as const;
+export type PracticeBatchSize = (typeof PRACTICE_BATCH_SIZES)[number];
+
+export interface PracticeSettings {
+	format: PracticeFormat;
+	pacing: PracticePacing;
+	batchSize: PracticeBatchSize;
+}
+
+export const DEFAULT_PRACTICE_SETTINGS: PracticeSettings = { format: "open", pacing: "single", batchSize: 10 };
+
+/** Validate a practice-settings body; anything malformed falls back to
+ *  the default field by field. Mix forces single pacing. */
+export function parsePracticeSettings(value: unknown): PracticeSettings {
+	const v = (typeof value === "object" && value !== null ? value : {}) as Record<string, unknown>;
+	const format: PracticeFormat = v.format === "mcq" || v.format === "mix" ? v.format : "open";
+	const pacing: PracticePacing = format === "mcq" && v.pacing === "batch" ? "batch" : "single";
+	const batchSize = (PRACTICE_BATCH_SIZES as readonly unknown[]).includes(v.batchSize)
+		? (v.batchSize as PracticeBatchSize)
+		: DEFAULT_PRACTICE_SETTINGS.batchSize;
+	return { format, pacing, batchSize };
+}
+
+/** A record's effective practice settings (absent = the default). */
+export function practiceSettingsOf(record: { practice?: PracticeSettings }): PracticeSettings {
+	return record.practice ? parsePracticeSettings(record.practice) : DEFAULT_PRACTICE_SETTINGS;
+}
+
 export interface ChatRecord {
 	id: string;
 	title: string;
@@ -35,6 +69,8 @@ export interface ChatRecord {
 	messages: LhMessage[];
 	/** The session's kind — absent = teach (pre-practice records). */
 	kind?: ChatKind;
+	/** Practice sessions only: the chosen format — absent = open-ended. */
+	practice?: PracticeSettings;
 	/** The session's plan tree (vision §2) — written by plan tools via saveTree. */
 	tree?: PlanTree;
 	/** Append-only usage log (observability, 2026-09): one entry per model

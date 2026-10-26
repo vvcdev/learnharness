@@ -13,6 +13,7 @@ import type { LhMessage } from "./native-messages.ts";
 import type {
 	ChatRecord,
 	ChatSettings,
+	PracticeSettings,
 	ChatSummary,
 	GraphChain,
 	GraphNode,
@@ -54,6 +55,8 @@ export interface ChatStore {
 	/** Persist the per-chat model/thinking settings (the model control).
 	 *  Replace-whole: the picker sends the complete settings object. */
 	saveSettings(id: string, settings: ChatSettings): void;
+	/** Persist a practice session's format (not conversation activity). */
+	savePractice(id: string, practice: PracticeSettings): void;
 	/** Rename a session (the header's click-to-edit title, 2026-09-17).
 	 * Like saveSettings: a rename is NOT conversation activity — updatedAt
 	 * stays put, so sidebar order never churns on a rename. */

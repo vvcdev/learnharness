@@ -35,7 +35,7 @@
 
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage, ImageContent, Message, TextContent, ToolResultMessage, UserMessage } from "@earendil-works/pi-ai";
-import { QUESTION_TOOLS } from "./pending.ts";
+import { isPracticeMcqTool, PRACTICE_MCQ_TOOLS, QUESTION_TOOLS } from "./pending.ts";
 import {
 	CONCLUDE_ACK_TEXT,
 	HANDOFF_TEXT,
@@ -565,17 +565,19 @@ export interface LlmMessageOptions {
 /** The practice tools whose clean calls END an image's lifetime: an image
  *  that rode a practice item is visible to the model until a later
  *  practice item is posed or concluded (owner ruling, 2026-10-26). */
-export const PRACTICE_ITEM_TOOLS: readonly string[] = [PRACTICE_PROBLEM_TOOL, PRACTICE_CONCLUDE_TOOL];
+export const PRACTICE_ITEM_TOOLS: readonly string[] = [PRACTICE_PROBLEM_TOOL, PRACTICE_CONCLUDE_TOOL, ...PRACTICE_MCQ_TOOLS];
 
 /** The record index of the newest message carrying a clean practice-item
- *  call (-1 when none): practice images at an earlier index are expired. */
+ *  call — or a posed MCQ, which ends the previous item even before it is
+ *  answered (-1 when none): practice images at an earlier index expire. */
 function lastPracticeItemIndex(messages: readonly LhMessage[]): number {
 	const clean = cleanToolCallIds(messages);
 	for (let i = messages.length - 1; i >= 0; i--) {
 		const m = messages[i]!;
 		if ((m as { role?: string }).role !== "assistant") continue;
 		const hit = (m as AssistantMessage).content.some(
-			(b) => b.type === "toolCall" && PRACTICE_ITEM_TOOLS.includes(b.name) && clean.has(b.id),
+			(b) =>
+				b.type === "toolCall" && PRACTICE_ITEM_TOOLS.includes(b.name) && (clean.has(b.id) || isPracticeMcqTool(b.name)),
 		);
 		if (hit) return i;
 	}
@@ -684,7 +686,11 @@ export function toLlmMessages(messages: readonly AgentMessage[], options: LlmMes
 			// Answer images ride QuestionAnswerData.images: practice answers
 			// expire like thinking images; teaching answers stay.
 			const result = native as ToolResultMessage;
-			const answerImages = refsOf((result.details as { images?: unknown } | undefined)?.images);
+			const details = result.details as { images?: unknown; batch?: Array<{ images?: unknown }> } | undefined;
+			const answerImages = [
+				...refsOf(details?.images),
+				...(Array.isArray(details?.batch) ? details.batch.flatMap((item) => refsOf(item?.images)) : []),
+			];
 			if (answerImages.length > 0) {
 				const expired = PRACTICE_ITEM_TOOLS.includes(result.toolName) && i < itemCut;
 				out.push({ ...result, content: [...result.content, ...imageParts(answerImages, expired, options)] });
@@ -781,6 +787,10 @@ export function answeredCallIds(messages: readonly LhMessage[]): Set<string> {
  *  dismissal pause and the continuation fold both read it. */
 function isDismissedResult(m: LhMessage): boolean {
 	if ((m as { role?: string }).role !== "toolResult") return false;
+	// A practice MCQ answer (owner 2026-10-26) pauses exactly like a
+	// dismissal: it lands silently, and the agent reads it with the
+	// learner's next input (Next, or a question).
+	if (isPracticeMcqTool((m as ToolResultMessage).toolName)) return true;
 	const details = (m as { details?: unknown }).details as { dismissed?: unknown } | undefined;
 	return details?.dismissed === true;
 }

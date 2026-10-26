@@ -59,7 +59,7 @@ import { CONFIDENCE_COLORS, confidenceRailStyle } from "@/components/confidence-
  */
 
 export interface QuestionDockProps {
-	toolName: "quiz" | "probe" | "ask_user_question" | "explain" | "recall";
+	toolName: "quiz" | "probe" | "ask_user_question" | "explain" | "recall" | "mcq";
 	toolCallId: string;
 	input: QuizToolInput | AskToolInput | ExplainToolInput;
 	/** Collapse state, owned by the DockOverlay (it drives the shell's height morph). */
@@ -94,6 +94,16 @@ export interface QuestionDockProps {
 	compactionRunning?: boolean;
 }
 
+/** The batch dock's hooks into one question's form (owner 2026-10-26):
+ *  the submit button saves instead of answering, the window-level Enter
+ *  fires only for the visible question, and the label row names its
+ *  place in the batch. */
+export interface QuestionFormBatchSlot {
+	label: string;
+	submitLabel: string;
+	enterEnabled: boolean;
+}
+
 export function QuestionDock({
 	toolName,
 	toolCallId,
@@ -112,11 +122,11 @@ export function QuestionDock({
 	// the probe quiz ("probe") is quiz-shaped, the probe free-recall
 	// ("recall") is explain-shaped. Old records keep the teach names.
 	const canonical =
-		toolName === "probe" ? "quiz" : toolName === "recall" ? "explain" : toolName;
+		toolName === "probe" || toolName === "mcq" ? "quiz" : toolName === "recall" ? "explain" : toolName;
 	// The chip's display name carries the tool's OWN name (owner
 	// 2026-10-09): probe-phase questions label Probe/Recall in the
 	// composer; teach tools keep the standing labels.
-	const toolLabel = toolName === "probe" ? "Probe" : toolName === "recall" ? "Recall" : undefined;
+	const toolLabel = toolName === "probe" ? "Probe" : toolName === "recall" ? "Recall" : toolName === "mcq" ? "MCQ" : undefined;
 	// Parse, don't cast (src/core/tool-parts.ts): the model authored this
 	// input, and only the schema the tool declared vouches for its shape.
 	// The dock mounts on input-available parts (already validated at the
@@ -245,7 +255,7 @@ export function QuestionDockBar({
 }
 
 /** The expanded question: label, question, options, and the unified bottom row. */
-function QuestionDockForm({
+export function QuestionDockForm({
 	toolName,
 	toolCallId,
 	input,
@@ -255,7 +265,8 @@ function QuestionDockForm({
 	onEscape,
 	dictationClaim = true,
 	compactionRunning = false,
-}: Omit<QuestionDockProps, "expanded" | "onExpand" | "reveal">) {
+	batch,
+}: Omit<QuestionDockProps, "expanded" | "onExpand" | "reveal"> & { batch?: QuestionFormBatchSlot }) {
 	const kind = toolQuestionKind(toolName);
 
 	// Canonical QuestionData, built once per question. Quiz options are
@@ -399,7 +410,9 @@ function QuestionDockForm({
 	/* ENTER SUBMITS FROM ANYWHERE (owner round 6, 2026-10-05): the same
 	 * law as the practice dock — dictated answers rarely focus the field.
 	 * Rides submit() so the dictation-flush law is shared, not forked. */
-	useEnterSubmits(submit);
+	useEnterSubmits(() => {
+		if (!batch || batch.enterEnabled) submit();
+	});
 
 	// Selecting Other never clears the thinking field — two channels, the
 	// answer and the reasoning behind it, side by side.
@@ -549,10 +562,14 @@ function QuestionDockForm({
 			    long questions short — owner round, 2026-10-05). */}
 			<div data-session-find-root="" className="max-h-[var(--dock-max-h,55dvh)] overflow-y-auto px-4 pt-3">
 				<div className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-					{toolName === "probe"
+					{batch
+						? batch.label
+						: toolName === "probe"
 						? "Probe"
 						: toolName === "recall"
 							? "Recall"
+							: toolName === "mcq"
+							? "MCQ"
 							: kind === "quiz"
 								? qd.questionType === "predict"
 									? "Prediction"
@@ -909,7 +926,7 @@ function QuestionDockForm({
 							disabled={!canSubmit || compactionRunning || images.uploading}
 							className="ml-auto h-9 rounded-[6px] px-3.5 text-sm font-medium"
 						>
-							Submit answer
+							{batch?.submitLabel ?? "Submit answer"}
 						</Button>
 					</div>
 				</div>

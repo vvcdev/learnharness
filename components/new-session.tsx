@@ -15,7 +15,9 @@ import { ChainTableOverlay } from "@/components/chain-table.tsx";
 import { ComposerActions, NodePickerControl } from "@/components/composer-actions";
 import { openingWithSources, SourcePicker, type AttachedSource } from "@/components/source-attach";
 import { ProjectPackControl } from "@/components/project-pack";
-import type { ChatSettings, GraphSnapshot, ProjectSummary } from "@/src/core";
+import type { ChatSettings, GraphSnapshot, PracticeSettings, ProjectSummary } from "@/src/core";
+import { DEFAULT_PRACTICE_SETTINGS } from "@/src/core";
+import { PracticeFormatPicker } from "@/components/practice-format";
 
 /** The draft's pick set (owner round 10): the SAME shape the home pick
  *  bar lifts — resolved nodes as the learner SAW them at pick time. */
@@ -51,6 +53,8 @@ export async function startDraftSession(
 	/** The sidebar title when it isn't the text — a voice opening's
 	 *  transcript (voice-everywhere wave, owner 2026-10-25). */
 	title: string = text,
+	/** The practice format (owner 2026-10-26) — practice drafts only. */
+	practice?: PracticeSettings,
 ): Promise<string | null> {
 	const t = text.trim();
 	const name = title.trim();
@@ -64,7 +68,12 @@ export async function startDraftSession(
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify(
 			mode === "practice"
-				? { title: name, kind: "practice", ...(picks && picks.length > 0 ? { graphContext: { propositions: picks } } : {}) }
+				? {
+						title: name,
+						kind: "practice",
+						...(picks && picks.length > 0 ? { graphContext: { propositions: picks } } : {}),
+						...(practice ? { practice } : {}),
+					}
 				: { title: name },
 		),
 	});
@@ -97,6 +106,8 @@ export function DraftShell({
 	onSourceError,
 	activeProject = null,
 	onActiveProject,
+	practice,
+	onPractice,
 }: {
 	busy: boolean;
 	text: string;
@@ -109,6 +120,9 @@ export function DraftShell({
 	 *  created session carries kind:"practice" and the copy changes
 	 *  (the practice agent opens; no probing). */
 	mode?: "teach" | "practice";
+	/** The practice format picker (owner 2026-10-26) — practice drafts. */
+	practice?: PracticeSettings;
+	onPractice?: (next: PracticeSettings) => void;
 	/** The first-run CTA (setup wave chunk B): the same "Set up your models"
 	 *  affordance home carries, rendered above the draft shell — passed by
 	 *  NewSession, which owns the configured state and the SetupDialog. */
@@ -243,7 +257,14 @@ export function DraftShell({
 								</div>
 								<StatsBar
 									turns={[]}
-									leadingSlot={<ProjectPackControl onActiveChange={onActiveProject} />}
+									leadingSlot={
+										<div className="flex flex-wrap items-center gap-1.5">
+											{mode === "practice" && practice && onPractice && (
+												<PracticeFormatPicker value={practice} onChange={onPractice} />
+											)}
+											<ProjectPackControl onActiveChange={onActiveProject} />
+										</div>
+									}
 								/>
 							</div>
 						</div>
@@ -276,6 +297,13 @@ export function NewSession({ initialConfigured, mode = "teach" }: { initialConfi
 		setText(v);
 	};
 	const [busy, setBusy] = useState(false);
+	// The practice format (owner 2026-10-26): open-ended by default.
+	const [practice, setPractice] = useState<PracticeSettings>(DEFAULT_PRACTICE_SETTINGS);
+	const practiceRef = useRef<PracticeSettings>(DEFAULT_PRACTICE_SETTINGS);
+	const applyPractice = (next: PracticeSettings) => {
+		practiceRef.current = next;
+		setPractice(next);
+	};
 	// THE PICK BAR (owner round 10): the draft's lifted pick set + the
 	// snapshot the standalone chain-table picker reads. Lazy — the graph
 	// is fetched on FIRST open only, then reused.
@@ -362,6 +390,7 @@ export function NewSession({ initialConfigured, mode = "teach" }: { initialConfi
 			mode === "practice" ? "practice" : undefined,
 			mode === "practice" ? picksRef.current : undefined,
 			opening || spoken,
+			mode === "practice" ? practiceRef.current : undefined,
 		)
 			.then(async (target) => {
 				if (!target) {
@@ -396,6 +425,8 @@ export function NewSession({ initialConfigured, mode = "teach" }: { initialConfi
 				onSend={send}
 				voice={voice}
 				mode={mode}
+				practice={practice}
+				onPractice={applyPractice}
 				sources={sources}
 				sourceError={sourceError}
 				onSources={applySources}

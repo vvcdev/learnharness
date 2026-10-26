@@ -58,7 +58,7 @@ import {
 	parseChatInput,
 	type TurnInput,
 } from "../core/input-events.ts";
-import { steerDelivered } from "../core/contracts.ts";
+import { practiceSettingsOf, steerDelivered } from "../core/contracts.ts";
 import type {CallUsage, SteerMessage} from "../core/contracts.ts";
 import { chatImageLoader } from "./chat-images.ts";
 
@@ -408,6 +408,9 @@ export async function handleChatInput(
 						// proposition, not just the session's picks (pickless sessions
 						// and future graph-tools poses stay valid).
 						graphNodes: () => stores.graphStore.readNodes(),
+						// The practice format (owner 2026-10-26): the posing tools
+						// this turn offers follow the learner's current choice.
+						practice: practiceSettingsOf(record),
 						// THE RARELY-NEEDED SET (owner round 10): research + pdf jobs
 						// (same runner/gating as the teacher's — research honestly
 						// absent when no engine is live) and the map readers behind

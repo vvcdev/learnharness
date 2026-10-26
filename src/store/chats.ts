@@ -12,7 +12,7 @@ import * as path from "node:path";
 import { PATHS } from "../../config.ts";
 import { emit } from "../core/events.ts";
 import type { ChatStore } from "../core/ports.ts";
-import type { ChatRecord, ChatSettings, ChatSummary, ExtractionRunUsage, PlanTree, TurnUsage } from "../core/contracts.ts";
+import type { ChatRecord, ChatSettings, ChatSummary, PracticeSettings, ExtractionRunUsage, PlanTree, TurnUsage } from "../core/contracts.ts";
 import { CURRENT_CHAT_VERSION } from "../core/contracts.ts";
 import type { LhMessage } from "../core/native-messages.ts";
 import { activeProblemOf, danglingQuestionOf } from "../core/native-messages.ts";
@@ -167,6 +167,16 @@ function saveSettings(id: string, settings: ChatSettings): void {
 	writeChat(record);
 }
 
+/** Persist a practice session's format (owner 2026-10-26) — like
+ *  saveSettings, not conversation activity: updatedAt stays put. Takes
+ *  effect at the next item (the practice tools read it per turn). */
+function savePractice(id: string, practice: PracticeSettings): void {
+	const record = getChat(id);
+	if (!record) throw new Error(`Chat not found: ${id}`);
+	record.practice = practice;
+	writeChat(record);
+}
+
 /** Rename a session (the header's click-to-edit title, 2026-09-17). Like
  * saveSettings, a rename is NOT conversation activity: updatedAt stays put
  * so sidebar order never churns. Same fallback as createChat — the empty
@@ -207,6 +217,7 @@ function saveTree(id: string, tree: PlanTree): void {
 
 export const chatStore: ChatStore = {
 	createChat,
+	savePractice,
 	getChat,
 	listChats,
 	saveMessages,

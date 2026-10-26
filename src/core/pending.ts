@@ -48,13 +48,28 @@ export const QUESTION_TOOLS = [
 	"ask_user_question",
 	"explain",
 	"recall",
+	// Practice MCQs (owner 2026-10-26): single and batch, both dock-owned.
+	"mcq",
+	"mcq_batch",
 ] as const;
+
+/** The practice MCQ tools — answered SILENTLY (no turn runs on the
+ *  answer; the agent reads it with the learner's next input). */
+export const PRACTICE_MCQ_TOOLS = ["mcq", "mcq_batch"] as const;
+
+export function isPracticeMcqTool(tool: string): boolean {
+	return (PRACTICE_MCQ_TOOLS as readonly string[]).includes(tool);
+}
 
 /** The tool→kind map (the dock's own fold, named once — the dismissal
  *  path and the dock must never disagree on what a tool is). The probe
  *  names fold onto their teach kinds — the dock is kind-driven. */
 export function toolQuestionKind(tool: string): "quiz" | "ask" | "explain" {
-	return tool === "quiz" || tool === "probe" ? "quiz" : tool === "explain" || tool === "recall" ? "explain" : "ask";
+	return tool === "quiz" || tool === "probe" || isPracticeMcqTool(tool)
+		? "quiz"
+		: tool === "explain" || tool === "recall"
+			? "explain"
+			: "ask";
 }
 
 /** Tools fulfilled by background sub-agent jobs (W2/W6). */

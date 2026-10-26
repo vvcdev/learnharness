@@ -40,7 +40,7 @@ import {
 	newUserMessage,
 	pendingProblemDismissalOf,
 } from "./native-messages.ts";
-import { QUESTION_TOOLS, toolQuestionKind } from "./pending.ts";
+import { isPracticeMcqTool, QUESTION_TOOLS, toolQuestionKind } from "./pending.ts";
 
 /** One client-originated input event (the POST body's `input`). */
 export type ChatInput =
@@ -79,7 +79,11 @@ export type DismissInput =
 	/** The problem discard (practice, owner 2026-10-04): ask-style — the
 	 *  silent route appends the UI-only marker and wakes nothing; the
 	 *  conclude pair rides the user's NEXT input (inputAppends). */
-	| { type: "dismiss-problem"; problemCallId: string };
+	| { type: "dismiss-problem"; problemCallId: string }
+	/** A practice MCQ answer (owner 2026-10-26): graded client-side and
+	 *  saved SILENTLY — no turn; the agent reads it with the learner's
+	 *  next input (Next, or a question), and may add its note then. */
+	| { type: "practice-answer"; toolCallId: string; answer: QuestionAnswerData };
 
 /** Parse and validate a dismissal event off a request body. */
 export function parseDismissInput(input: unknown): DismissInput {
@@ -90,6 +94,17 @@ export function parseDismissInput(input: unknown): DismissInput {
 			throw new ChatInputError("dismiss-problem input requires problemCallId");
 		}
 		return { type: "dismiss-problem", problemCallId: i.problemCallId };
+	}
+	if (i.type === "practice-answer") {
+		if (typeof i.toolCallId !== "string" || i.toolCallId.length === 0) {
+			throw new ChatInputError("practice-answer input requires toolCallId");
+		}
+		if (typeof i.answer !== "object" || i.answer === null) {
+			throw new ChatInputError("practice-answer input requires the graded answer object");
+		}
+		const answer = sanitizeAnswerImages(i.answer as QuestionAnswerData);
+		if (Array.isArray(answer.batch)) answer.batch = answer.batch.map(sanitizeAnswerImages);
+		return { type: "practice-answer", toolCallId: i.toolCallId, answer };
 	}
 	if (i.type !== "dismiss") throw new ChatInputError(`unknown input type: ${String(i.type)}`);
 	if (typeof i.toolCallId !== "string" || i.toolCallId.length === 0) {
@@ -153,12 +168,24 @@ export function dismissAppends(record: { messages: LhMessage[] }, input: Dismiss
 	}
 	const pending = danglingQuestionOf(record.messages);
 	if (!pending || pending.toolCallId !== input.toolCallId) {
-		throw new ChatInputError("dismiss input targets no pending question call");
+		throw new ChatInputError(`${input.type} input targets no pending question call`);
+	}
+	if (input.type === "practice-answer" && !isPracticeMcqTool(pending.tool)) {
+		throw new ChatInputError("practice-answer input targets a non-MCQ question");
 	}
 	if (input.answer.kind !== toolQuestionKind(pending.tool)) {
 		throw new ChatInputError("dismiss input's answer kind does not match the question");
 	}
 	return [newAnswerResult(input.toolCallId, pending.tool, input.answer)];
+}
+
+/** An answer with only well-formed image refs (absent when none). */
+function sanitizeAnswerImages(raw: QuestionAnswerData): QuestionAnswerData {
+	const answer = { ...raw };
+	const images = parseImageRefs(answer.images);
+	if (images) answer.images = images;
+	else delete answer.images;
+	return answer;
 }
 
 /** A malformed input event (the honest 400 — the orphan-trap discipline). */
@@ -187,14 +214,8 @@ export function parseChatInput(input: unknown): ChatInput {
 			if (typeof i.answer !== "object" || i.answer === null) {
 				throw new ChatInputError("answer input requires the graded answer object");
 			}
-			{
-				// Answer images (owner 2026-10-26): only well-formed refs survive.
-				const answer = { ...(i.answer as QuestionAnswerData) };
-				const images = parseImageRefs(answer.images);
-				if (images) answer.images = images;
-				else delete answer.images;
-				return { type: "answer", toolCallId: i.toolCallId, answer };
-			}
+			// Answer images (owner 2026-10-26): only well-formed refs survive.
+			return { type: "answer", toolCallId: i.toolCallId, answer: sanitizeAnswerImages(i.answer as QuestionAnswerData) };
 		case "continue":
 			return { type: "continue" };
 		case "thinking":

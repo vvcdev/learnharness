@@ -53,8 +53,11 @@ import { MermaidOverlay, SessionMermaidContext } from "@/components/session-over
 import { AbortTurnDialog, type AbortMode } from "@/components/abort-turn-dialog";
 import { ArrowRightIcon, WaypointsIcon } from "lucide-react";
 import { ImageInputContext, ImageThumbs, useImageDraft } from "@/components/learner-images";
+import { McqBatchCard, McqBatchDock } from "@/components/mcq-batch";
+import { nextItemLabel, PracticeFormatChip } from "@/components/practice-format";
 import { useModelCatalog } from "@/components/model-picker";
-import type { ImageRef, PlanBlockData, UserVoiceInput } from "@/src/core";
+import type { ImageRef, PlanBlockData, PracticeSettings, UserVoiceInput } from "@/src/core";
+import { DEFAULT_PRACTICE_SETTINGS } from "@/src/core";
 import { QuestionDock } from "@/components/question-dock";
 import { SessionFind } from "@/components/session-find";
 import { SessionMessageNavigation } from "@/components/session-navigation";
@@ -76,6 +79,7 @@ import {
 	activeProblemOf,
 	dismissedAnswer,
 	findPendingToolCall,
+	isPracticeMcqTool,
 	phaseAt3,
 	phaseTimeline,
 	teachStepIndex,
@@ -210,10 +214,14 @@ export function Chat({
 	initiallyCompacting = false,
 	initialConfigured = false,
 	kind = "teach",
+	initialPractice = DEFAULT_PRACTICE_SETTINGS,
 }: {
 	chatId: string;
 	title: string;
 	initialMessages: LhMessage[];
+	/** The practice format at mount (owner 2026-10-26) — the top bar's
+	 *  chip switches it; practice sessions only. */
+	initialPractice?: PracticeSettings;
 	/** The session kind (practice sessions, owner 2026-10-04): practice
 	 *  renders no phase chip (no probe→teach arc applies) and a Practice
 	 *  tag rides the header instead. */
@@ -245,7 +253,7 @@ export function Chat({
 	// (core/view.ts projectView); sends are ONE explicit input event each
 	// ({chatId, input} — the stash indirection died with the SDK), and the
 	// turn stream is the VERBATIM AgentEvent passthrough the server emits.
-	const { messages, nativeMessages, contextTokens, send, steer, steerQueue, submitAnswer, dismissQuestion, dismissProblem, setMessages, adoptRecord, status, error, stop, clearError, resumeStream, setReattachSettled } =
+	const { messages, nativeMessages, contextTokens, send, steer, steerQueue, submitAnswer, dismissQuestion, answerSilently, dismissProblem, setMessages, adoptRecord, status, error, stop, clearError, resumeStream, setReattachSettled } =
 		useChatSession({ chatId, initialMessages, initiallyInFlight });
 
 	const sessionFindScopeRef = useRef<HTMLDivElement | null>(null);
@@ -674,6 +682,7 @@ export function Chat({
 	/* Voice everywhere (owner 2026-10-25): composer dictation becomes hidden
 	 * voice notes riding the send — never text in the box. */
 	const composerVoice = useVoiceNotes();
+	const [practice, setPractice] = useState<PracticeSettings>(initialPractice);
 	/* Show-your-work images (owner 2026-10-26): the session model's
 	 * capability gates every image affordance; the composer's draft rides
 	 * the next send (the paperclip routes picked images here). */
@@ -750,7 +759,7 @@ export function Chat({
 			(m) => (m as { role?: string }).role === "assistant" &&
 				Array.isArray((m as { content?: unknown[] }).content) &&
 				(m as { content: Array<{ type?: string; name?: string }> }).content.some(
-					(b) => b.type === "toolCall" && b.name === "problem",
+					(b) => b.type === "toolCall" && (b.name === "problem" || isPracticeMcqTool(b.name ?? "")),
 				),
 		);
 	const sendNext = useCallback(() => {
@@ -1370,6 +1379,7 @@ export function Chat({
 					    Teaching keeps its phase label beside it; practice has no
 					    phase arc. */}
 					<SessionKindChip kind={kind === "practice" ? "practice" : "teach"} />
+					{kind === "practice" && <PracticeFormatChip chatId={chatId} value={practice} onChange={setPractice} />}
 					{kind !== "practice" && <PhaseChip phase={phases.at(-1) ?? "probe"} />}
 				</TopBar>
 
@@ -1579,13 +1589,21 @@ export function Chat({
 													case "tool-probe":
 													case "tool-ask_user_question":
 													case "tool-explain":
-													case "tool-recall": {
+													case "tool-recall":
+													case "tool-mcq": {
 														// Pending/streaming questions live in the dock, not the
 														// transcript; answered ones render as graded records.
 														if (part.state === "output-available") {
 															return (
 																<AnsweredCard key={pi} answer={part.output as QuestionAnswerData} input={part.input} />
 															);
+														}
+														return null;
+													}
+													case "tool-mcq_batch": {
+														// The batch's reveal walk + summary (owner 2026-10-26).
+														if (part.state === "output-available") {
+															return <McqBatchCard key={pi} answer={part.output as QuestionAnswerData} input={part.input} />;
 														}
 														return null;
 													}
@@ -1740,6 +1758,7 @@ export function Chat({
 							// IS the hint — empty state, exactly where Enter-on-empty
 							// applies.
 							nextProblem={nextReady}
+							nextLabel={nextItemLabel(practice)}
 							onNext={sendNext}
 							placeholder={nextReady ? "Ask anything, or press Enter for the next one." : undefined}
 						/>
@@ -1754,6 +1773,13 @@ export function Chat({
 						// ride the same callback (QuestionAnswerData.dismissed). The
 						// reading-thinking draft rides along (owner 2026-10-03) — the
 						// check answer is its only carrier.
+						// Practice MCQs (owner 2026-10-26) answer SILENTLY: the
+						// graded card shows at once, no turn runs — the agent reads
+						// the answer with the learner's next input.
+						if (isPracticeMcqTool(pending.tool)) {
+							answerSilently(pending.toolCallId, output);
+							return;
+						}
 						const reading = readingThinkingRef.current.trim() || undefined;
 						const spokenReading = voiceText(readingVoiceRef.current);
 						clearReadingThinking();
@@ -2409,9 +2435,20 @@ function DockOverlay({
 						key={mode}
 						className={mode === initialModeRef.current ? undefined : "dock-variant"}
 					>
-							{pending ? (
+							{pending?.tool === "mcq_batch" ? (
+								<McqBatchDock
+									key={pending.toolCallId}
+									toolCallId={pending.toolCallId}
+									input={pending.input}
+									expanded={expanded}
+									onExpand={expandAndReveal}
+									onSubmit={onSubmitAnswer}
+									onEscape={dictationCancel}
+									compactionRunning={compactionRunning}
+								/>
+							) : pending ? (
 								<QuestionDock
-									toolName={pending.tool as "quiz" | "probe" | "ask_user_question" | "explain" | "recall"}
+									toolName={pending.tool as "quiz" | "probe" | "ask_user_question" | "explain" | "recall" | "mcq"}
 									toolCallId={pending.toolCallId}
 									input={pending.input as never}
 									expanded={expanded}

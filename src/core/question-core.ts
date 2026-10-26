@@ -277,6 +277,47 @@ export const quizInputObject = Type.Object({
  *  the call boundary, where quizInputProblems runs now). */
 export const probeQuizInputSchema = quizInputBase;
 
+// ─── practice MCQs (owner 2026-10-26) ──────────────────────────────────────
+//
+// The quiz's authoring contract, plus the practice trace fields every
+// practice item carries (mode + target, the problem tool's twins). The
+// single tool asks one; the batch tool asks a fixed number in one call —
+// the learner answers them all before any reveal.
+
+const practiceModeField = Type.Union([Type.Literal("recall"), Type.Literal("discrimination"), Type.Literal("composition")], {
+	description: "REQUIRED — the demand mode: recall, discrimination, or composition (bare words, no quotes).",
+});
+
+const practiceTargetField = Type.Optional(
+	Type.Array(Type.String(), {
+		minItems: 1,
+		description:
+			"The proposition id(s) this question exercises, from the session context's [id] list — include when " +
+			"the material is in the map; OMIT entirely when it is not. Names are normalized to ids at the seam; an " +
+			"unknown proposition is rejected.",
+	}),
+);
+
+/** One practice MCQ: mode + target first (fields generated first get
+ *  dropped least), then the quiz body. */
+export const mcqItemObject = Type.Object({
+	mode: practiceModeField,
+	target: practiceTargetField,
+	...quizInputBase.properties,
+});
+
+export type McqItemInput = Static<typeof mcqItemObject>;
+
+/** The batch: the items, in the order the learner works them. */
+export const mcqBatchInputObject = Type.Object({
+	questions: Type.Array(mcqItemObject, {
+		minItems: 1,
+		description: "REQUIRED — the batch's questions as a JSON array of question objects, in the order the learner works them.",
+	}),
+});
+
+export type McqBatchInput = Static<typeof mcqBatchInputObject>;
+
 /** The DISPLAY parse for persisted quiz calls (tool-parts.ts): the base
  *  + `type` as an OPTIONAL plain string (old records carry none, and
  *  Value.Clean keeps a key only when the schema knows it — the dock would
@@ -476,6 +517,9 @@ export interface QuestionAnswerData {
 	/** Images of his work attached to the thinking (owner 2026-10-26):
 	 *  refs only — the wire loads the bytes (toLlmMessages). */
 	images?: ImageRef[];
+	/** mcq_batch only (owner 2026-10-26): one graded answer per question,
+	 *  in batch order — the reveal walk and the summary read these. */
+	batch?: QuestionAnswerData[];
 	confidence?: number; // quiz only: the learner's stated probability (0-100, raw) that his selected answer is correct — never sent on "I don't know" (owner, 2026-10-01)
 	correct?: boolean; // quiz only
 	correctIndices?: number[]; // quiz only (rendering)
@@ -792,6 +836,11 @@ export function dismissedAnswer(kind: QuestionKind, questionText: string): Quest
 
 export function compactAnswerForModel(ad: QuestionAnswerData): Record<string, unknown> {
 	if (ad.dismissed) return { kind: ad.kind, dismissed: true };
+	// A batch (owner 2026-10-26): one compact record per question, in order.
+	if (Array.isArray(ad.batch)) {
+		const items = ad.batch.map((item, i) => ({ question: i + 1, ...compactAnswerForModel(item) }));
+		return { kind: ad.kind, batch: items, score: `${ad.batch.filter((b) => b.correct === true).length}/${ad.batch.length}` };
+	}
 	const out: Record<string, unknown> = { kind: ad.kind };
 	if (ad.dontKnow) out.dontKnow = true;
 	// Array.isArray: the seam is called with `unknown` answers (test

@@ -50,6 +50,7 @@ export function Composer({
 	onEscape,
 	placeholder = "Ask, answer, or steer the lesson…",
 	nextProblem = false,
+	nextLabel = "Next problem",
 	onNext,
 	attachments,
 	voice,
@@ -76,6 +77,8 @@ export function Composer({
 	 *  composer fires the next-problem signal instead of doing nothing —
 	 *  the keyboard-first move-on. */
 	nextProblem?: boolean;
+	/** The move-on button's words (practice formats, owner 2026-10-26). */
+	nextLabel?: string;
 	/** The signal's dispatcher (send({type:"next"})) — the chip and the
 	 *  empty-Enter share it. */
 	onNext?: () => void;
@@ -100,10 +103,10 @@ export function Composer({
 			<button
 				type="submit"
 				data-testid="next-problem-button"
-				aria-label="Next problem"
+				aria-label={nextLabel}
 				className="flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-[10px] bg-green-600 px-4 font-ui text-xs font-medium uppercase tracking-wide text-white transition-colors hover:bg-green-500"
 			>
-				Next problem
+				{nextLabel}
 				<ArrowRightIcon className="size-4" />
 			</button>
 		) : (

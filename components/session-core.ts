@@ -699,7 +699,7 @@ export class SessionModel {
 	 * user's choice; the next plain send is the wake. On failure the
 	 * durable record wins: the error surfaces, the record-changed sync
 	 * (or any later refetch) replaces the optimistic append with truth. */
-	async dismissQuestion(toolCallId: string, answer: QuestionAnswerData): Promise<void> {
+	async dismissQuestion(toolCallId: string, answer: QuestionAnswerData, type: "dismiss" | "practice-answer" = "dismiss"): Promise<void> {
 		if (!this.readyRef) return;
 		const tool = pendingCallTool([...this.base, ...this.tail], toolCallId) ?? "quiz";
 		this.mutate(() => {
@@ -709,12 +709,19 @@ export class SessionModel {
 			const res = await this.fetch(`/api/chats/${this.chatId}/dismiss`, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ input: { type: "dismiss", toolCallId, answer } }),
+				body: JSON.stringify({ input: { type, toolCallId, answer } }),
 			});
-			if (!res.ok) throw new Error(`The dismissal failed (${res.status}).`);
+			if (!res.ok) throw new Error(`The ${type === "dismiss" ? "dismissal" : "answer"} failed (${res.status}).`);
 		} catch (err) {
 			this.setError((err as Error).message);
 		}
+	}
+
+	/** A practice MCQ answer (owner 2026-10-26): the same silent route as
+	 *  a dismissal — the graded result lands optimistically (the reveal
+	 *  shows at once), persists turn-less, and waits for Next. */
+	answerSilently(toolCallId: string, answer: QuestionAnswerData): Promise<void> {
+		return this.dismissQuestion(toolCallId, answer, "practice-answer");
 	}
 
 	/** The problem discard (practice sessions, owner 2026-10-04): the
