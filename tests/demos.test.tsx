@@ -50,7 +50,7 @@ import { ToolCallCard } from "../components/artifacts/tool-call-card.tsx";
 import { JobsContext } from "../components/jobs-context.ts";
 import { demoInputSchema, jobTools, pdfInputSchema, visualInputSchema } from "../src/agent/tools/jobs.ts";
 import { runDemoBuilder } from "../src/agent/subagents/demo-builder.ts";
-import { headlessOverride, type DemoRunResult, type HeadlessApi } from "../src/agent/subagents/headless.ts";
+import { headlessOverride, type DemoInteractResult, type DemoRunResult, type DemoStep, type HeadlessApi } from "../src/agent/subagents/headless.ts";
 import { createJobRunner, demoModelOverride, visualModelOverride } from "../src/agent/subagents/runner.ts";
 import { runVisualMaker } from "../src/agent/subagents/visual-maker.ts";
 import { buildAbortSteer, buildSubagentSteer, isSubagentFailure, setSteerUiInverted, type SteerMessage } from "../src/core/contracts.ts";
@@ -139,6 +139,7 @@ function scriptedModel(turns: Array<{ toolCalls?: Array<{ toolCallId: string; to
 
 // ─── fake headless ───────────────────────────────────────────────────────────
 
+const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 const CLEAN_RUN: DemoRunResult = { consoleErrors: [], pageErrors: [], failedRequests: [], ok: true };
 const BROKEN_RUN: DemoRunResult = {
 	consoleErrors: ["Uncaught ReferenceError: foo is not defined"],
@@ -152,10 +153,14 @@ function fakeHeadless(opts: {
 	brokenWhenIncludes?: string;
 	/** Throw for the first N renderSvg calls (then succeed). */
 	renderFailures?: number;
-} = {}): HeadlessApi & { demoRuns: string[]; svgRenders: string[] } {
+	/** Make interactDemo report a failed step for html matching this substring. */
+	interactBrokenWhenIncludes?: string;
+} = {}): HeadlessApi & { demoRuns: string[]; svgRenders: string[]; shots: string[]; interactions: DemoStep[][] } {
 	const api = {
 		demoRuns: [] as string[],
 		svgRenders: [] as string[],
+		shots: [] as string[],
+		interactions: [] as DemoStep[][],
 		available() {
 			return true;
 		},
@@ -166,6 +171,22 @@ function fakeHeadless(opts: {
 			api.demoRuns.push(html);
 			return opts.brokenWhenIncludes && html.includes(opts.brokenWhenIncludes) ? BROKEN_RUN : CLEAN_RUN;
 		},
+		async screenshotDemo(html: string): Promise<Buffer> {
+			api.shots.push(html);
+			return PNG_MAGIC;
+		},
+		async interactDemo(html: string, steps: DemoStep[]): Promise<DemoInteractResult> {
+			api.interactions.push(steps);
+			const broken = !!opts.interactBrokenWhenIncludes && html.includes(opts.interactBrokenWhenIncludes);
+			return {
+				png: PNG_MAGIC,
+				stepLog: steps.map((s, i) => `${i + 1}. ${s.action} — ${broken ? "FAILED: no element matches" : "ok"}`),
+				stepErrors: broken ? ["1. click: no element matches"] : [],
+				consoleErrors: [],
+				pageErrors: [],
+				ok: !broken,
+			};
+		},
 		async renderSvg(svg: string): Promise<Buffer> {
 			api.svgRenders.push(svg);
 			if (opts.renderFailures && api.svgRenders.length <= opts.renderFailures) {
@@ -174,7 +195,7 @@ function fakeHeadless(opts: {
 			return Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]); // PNG magic
 		},
 	};
-	return api as HeadlessApi & { demoRuns: string[]; svgRenders: string[] };
+	return api as HeadlessApi & { demoRuns: string[]; svgRenders: string[]; shots: string[]; interactions: DemoStep[][] };
 }
 
 function noChromeHeadless(): HeadlessApi {
@@ -183,6 +204,12 @@ function noChromeHeadless(): HeadlessApi {
 		unavailableReason: () => "No Chrome/Chromium found for headless testing. Install Google Chrome or set CHROME_PATH.",
 		runDemo: async () => {
 			throw new Error("should not run");
+		},
+		screenshotDemo: async () => {
+			throw new Error("should not screenshot");
+		},
+		interactDemo: async () => {
+			throw new Error("should not interact");
 		},
 		renderSvg: async () => {
 			throw new Error("should not render");
@@ -598,15 +625,20 @@ describe("setSteerUiInverted (the persisted invert switch, 2026-10-07)", () => {
 const BROKEN_HTML = "<!doctype html><html><body>BROKEN<script>foo();</script></body></html>";
 const GOOD_HTML = "<!doctype html><html><body><canvas id=\"c\"></canvas><script>requestAnimationFrame(function step(){});</script></body></html>";
 
+const STEP = { action: "set_value", selector: "#damping", value: "0.8" };
+const tc = (id: string, name: string, input: unknown = {}) => ({ toolCalls: [{ toolCallId: id, toolName: name, input }] });
+
 describe("demo builder (fake model + fake headless)", () => {
-	it("iterates write → run → fix → run → clean → delivers with notes", async () => {
+	it("iterates write → run → fix → run → look → interact → delivers with notes", async () => {
 		const headless = fakeHeadless({ brokenWhenIncludes: "BROKEN" });
 		const activities: string[] = [];
 		const model = scriptedModel([
-			{ toolCalls: [{ toolCallId: "w1", toolName: "write_demo", input: { html: BROKEN_HTML } }] },
-			{ toolCalls: [{ toolCallId: "r1", toolName: "run_demo", input: {} }] },
-			{ toolCalls: [{ toolCallId: "w2", toolName: "write_demo", input: { html: GOOD_HTML } }] },
-			{ toolCalls: [{ toolCallId: "r2", toolName: "run_demo", input: { probe: "typeof step === 'function'" } }] },
+			tc("w1", "write_demo", { html: BROKEN_HTML }),
+			tc("r1", "run_demo"),
+			tc("w2", "write_demo", { html: GOOD_HTML }),
+			tc("r2", "run_demo", { probe: "typeof step === 'function'" }),
+			tc("s1", "screenshot_demo"),
+			tc("i1", "interact_demo", { steps: [STEP] }),
 			{ text: "Drag the damping slider to see the oscillation decay." },
 		]);
 
@@ -619,34 +651,84 @@ describe("demo builder (fake model + fake headless)", () => {
 		assert.equal(result.html, GOOD_HTML, "delivers the FIXED html");
 		assert.equal(result.tested, true);
 		assert.equal(result.notes, "Drag the damping slider to see the oscillation decay.");
-		assert.equal(headless.demoRuns.length, 2, "ran the broken demo, then the fixed one — no extra verification needed");
-		assert.ok(activities.some((a) => a.startsWith("run_demo: 1 console error")), `activity recorded per iteration: ${activities.join(" | ")}`);
-		assert.ok(activities.includes("run_demo: clean"), "clean run recorded in activity");
+		assert.equal(headless.demoRuns.length, 2);
+		assert.deepEqual(headless.shots, [GOOD_HTML]);
+		assert.deepEqual(headless.interactions, [[STEP]]);
+		assert.ok(activities.some((a) => a.startsWith("run_demo: 1 console error")), `activity recorded: ${activities.join(" | ")}`);
+		assert.ok(activities.includes("run_demo: clean"));
+		assert.ok(activities.includes("interact_demo: clean"));
 	});
 
-	it("verifies headlessly even when the model forgets run_demo before finishing", async () => {
+	it("bounces a finish that skipped the checks: harness runs + shows, model must still interact", async () => {
 		const headless = fakeHeadless();
 		const model = scriptedModel([
-			{ toolCalls: [{ toolCallId: "w1", toolName: "write_demo", input: { html: GOOD_HTML } }] },
+			tc("w1", "write_demo", { html: GOOD_HTML }),
 			{ text: "Done." },
+			tc("i1", "interact_demo", { steps: [STEP] }),
+			{ text: "Works." },
 		]);
 		const result = await runDemoBuilder({ title: "T", brief: "b" }, { engine: model, headless });
 		assert.equal(result.html, GOOD_HTML);
-		assert.equal(result.tested, true, "tested by the final verification gate");
+		assert.equal(result.notes, "Works.");
 		assert.equal(headless.demoRuns.length, 1, "the gate ran the demo once itself");
+		assert.equal(headless.shots.length, 1, "the gate showed the screenshot itself");
+		assert.equal(headless.interactions.length, 1);
 	});
 
-	it("fails (empty html + FAILED notes) when the demo never passes verification", async () => {
+	it("a wait-only interaction does not satisfy the interact gate", async () => {
+		const headless = fakeHeadless();
+		const model = scriptedModel([
+			tc("w1", "write_demo", { html: GOOD_HTML }),
+			tc("i1", "interact_demo", { steps: [{ action: "wait", ms: 100 }] }),
+			{ text: "Done." },
+			{ text: "Still done." },
+		]);
+		const result = await runDemoBuilder({ title: "T", brief: "b" }, { engine: model, headless, maxSteps: 4 });
+		assert.equal(result.html, "");
+		assert.match(result.notes ?? "", /^FAILED: .*clean interact_demo pass/);
+	});
+
+	it("fails when interaction never passes", async () => {
+		const headless = fakeHeadless({ interactBrokenWhenIncludes: "canvas" });
+		const model = scriptedModel([
+			tc("w1", "write_demo", { html: GOOD_HTML }),
+			tc("i1", "interact_demo", { steps: [{ action: "click", selector: "#nope" }] }),
+			{ text: "It works, trust me." },
+			{ text: "Really." },
+		]);
+		const result = await runDemoBuilder({ title: "T", brief: "b" }, { engine: model, headless, maxSteps: 4 });
+		assert.equal(result.html, "");
+		assert.match(result.notes ?? "", /^FAILED:/);
+	});
+
+	it("fails (empty html + FAILED notes) when the demo never passes the error check", async () => {
 		const headless = fakeHeadless({ brokenWhenIncludes: "BROKEN" });
 		const model = scriptedModel([
-			{ toolCalls: [{ toolCallId: "w1", toolName: "write_demo", input: { html: BROKEN_HTML } }] },
+			tc("w1", "write_demo", { html: BROKEN_HTML }),
 			{ text: "It works, trust me." },
+			{ text: "Still fine." },
 		]);
-		const result = await runDemoBuilder({ title: "T", brief: "b" }, { engine: model, headless });
+		const result = await runDemoBuilder({ title: "T", brief: "b" }, { engine: model, headless, maxSteps: 3 });
 		assert.equal(result.html, "");
 		assert.equal(result.tested, true, "the loop ran");
 		assert.match(result.notes ?? "", /^FAILED:/);
 		assert.match(result.notes ?? "", /ReferenceError/);
+	});
+
+	it("edit_demo replaces exactly one occurrence and rejects ambiguous edits", async () => {
+		const headless = fakeHeadless();
+		const base = "<!doctype html><html><body><p>a</p><p>a</p><button id=go>go</button></body></html>";
+		const model = scriptedModel([
+			tc("w1", "write_demo", { html: base }),
+			tc("e1", "edit_demo", { old_text: "<p>a</p>", new_text: "<p>b</p>" }), // ambiguous
+			tc("e2", "edit_demo", { old_text: "go</button>", new_text: "Go!</button>" }),
+			tc("r1", "run_demo"),
+			tc("s1", "screenshot_demo"),
+			tc("i1", "interact_demo", { steps: [{ action: "click", selector: "#go" }] }),
+			{ text: "ok" },
+		]);
+		const result = await runDemoBuilder({ title: "T", brief: "b" }, { engine: model, headless });
+		assert.equal(result.html, base.replace("go</button>", "Go!</button>"));
 	});
 
 	it("fails fast with a clear message when no Chrome is available (never skips testing)", async () => {
@@ -827,6 +909,8 @@ describe("demo/visual job runners", () => {
 		demoModelOverride.current = scriptedModel([
 			{ toolCalls: [{ toolCallId: "w1", toolName: "write_demo", input: { html: GOOD_HTML } }] },
 			{ toolCalls: [{ toolCallId: "r1", toolName: "run_demo", input: {} }] },
+			{ toolCalls: [{ toolCallId: "s1", toolName: "screenshot_demo", input: {} }] },
+			{ toolCalls: [{ toolCallId: "i1", toolName: "interact_demo", input: { steps: [{ action: "click", selector: "#c" }] } }] },
 			{ text: "Sweep the rate slider." },
 		]);
 		const { steers, runner } = testRunner();
@@ -926,6 +1010,8 @@ describe("demo/visual job runners", () => {
 		demoModelOverride.current = scriptedModel([
 			{ toolCalls: [{ toolCallId: "w1", toolName: "write_demo", input: { html: GOOD_HTML } }] },
 			{ toolCalls: [{ toolCallId: "r1", toolName: "run_demo", input: {} }] },
+			{ toolCalls: [{ toolCallId: "s1", toolName: "screenshot_demo", input: {} }] },
+			{ toolCalls: [{ toolCallId: "i1", toolName: "interact_demo", input: { steps: [{ action: "click", selector: "#c" }] } }] },
 			{ text: "Sweep it." },
 		]);
 		headlessOverride.current = fakeHeadless();

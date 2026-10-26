@@ -80,6 +80,8 @@ function fakeHeadless(renders: string[]): HeadlessApi {
 	return {
 		available: () => true,
 		unavailableReason: () => null,
+		screenshotDemo: async () => { throw new Error("unexpected screenshot"); },
+		interactDemo: async () => { throw new Error("unexpected interact"); },
 		runDemo: async () => { throw new Error("unexpected demo"); },
 		renderSvg: async (svg) => {
 			assert.equal(svg, SVG);

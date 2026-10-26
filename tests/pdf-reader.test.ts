@@ -38,6 +38,8 @@ function fakeHeadless(rendered: { pages: number[] } = { pages: [] }): HeadlessAp
 		paths,
 		available: () => true,
 		unavailableReason: () => null,
+		screenshotDemo: async () => { throw new Error("unexpected screenshot"); },
+		interactDemo: async () => { throw new Error("unexpected interact"); },
 		runDemo: async () => {
 			throw new Error("unused");
 		},
@@ -206,6 +208,8 @@ describe("pdf-reader loop (faux engine)", () => {
 				headless: {
 					available: () => false,
 					unavailableReason: () => "No Chrome found",
+					screenshotDemo: async () => { throw new Error("unexpected screenshot"); },
+					interactDemo: async () => { throw new Error("unexpected interact"); },
 					runDemo: async () => {
 						throw new Error("unused");
 					},

@@ -40,6 +40,36 @@ export interface RunDemoOptions {
 	probe?: string;
 }
 
+/** One scripted interaction with a running demo (interact_demo's steps). */
+export interface DemoStep {
+	action: "click" | "set_value" | "drag" | "type" | "wait";
+	/** CSS selector of the target element (every action but wait). */
+	selector?: string;
+	/** set_value: the value to set (checkboxes: "true" / "false"). */
+	value?: string;
+	/** type: the text typed into the element. */
+	text?: string;
+	/** drag: the element to drop onto (else dx/dy offset from the centre). */
+	to_selector?: string;
+	dx?: number;
+	dy?: number;
+	/** wait: milliseconds (capped at 3000). */
+	ms?: number;
+}
+
+export interface DemoInteractResult {
+	/** The page after the steps ran (viewport screenshot, provider-safe PNG). */
+	png: Buffer;
+	/** One line per executed step, e.g. "1. click #play — ok". */
+	stepLog: string[];
+	/** Steps that failed (missing selector, …); the run stops at the first. */
+	stepErrors: string[];
+	consoleErrors: string[];
+	pageErrors: string[];
+	/** True when no step failed and nothing errored. */
+	ok: boolean;
+}
+
 export interface RenderSvgOptions {
 	/** Viewport size — defaults to the SVG's width/height attrs, else 900×700. */
 	width?: number;
@@ -63,6 +93,10 @@ export interface HeadlessApi {
 	unavailableReason(): string | null;
 	/** Execute HTML in a browser, capture errors, optionally probe. */
 	runDemo(html: string, opts?: RunDemoOptions): Promise<DemoRunResult>;
+	/** Load HTML in a browser and screenshot it (for verify-by-looking). */
+	screenshotDemo(html: string): Promise<Buffer>;
+	/** Load HTML, run scripted interaction steps, screenshot the result. */
+	interactDemo(html: string, steps: DemoStep[]): Promise<DemoInteractResult>;
 	/** Rasterize an SVG to a PNG buffer (for verify-by-looking). */
 	renderSvg(svg: string, opts?: RenderSvgOptions): Promise<Buffer>;
 	/** Render PDF pages to PNGs natively (pdfjs + Skia) for the pdf-reader. */
@@ -332,6 +366,130 @@ async function runDemo(html: string, opts: RunDemoOptions = {}): Promise<DemoRun
 	};
 }
 
+// ─── Demo screenshots + interaction ──────────────────────────────────────────
+
+const DEMO_VIEWPORT = { width: 900, height: 700 };
+
+/** Load `html` in a fresh page (errors collected), settle, run `fn`. */
+async function withDemoPage<T>(
+	html: string,
+	fn: (page: import("puppeteer-core").Page, errors: { console: string[]; page: string[] }) => Promise<T>,
+): Promise<T> {
+	const dir = tempDir("lh-demo-");
+	const file = path.join(dir, "demo.html");
+	fs.writeFileSync(file, html, "utf-8");
+	try {
+		return await withBrowserPage(async (page) => {
+			const errors = { console: [] as string[], page: [] as string[] };
+			page.on("console", (msg) => {
+				if (msg.type() === "error") errors.console.push(msg.text());
+			});
+			page.on("pageerror", (err) => errors.page.push(err instanceof Error ? err.message : String(err)));
+			await page.setViewport(DEMO_VIEWPORT);
+			try {
+				await page.goto(pathToFileURL(file).href, { waitUntil: "load", timeout: 30_000 });
+			} catch (err) {
+				errors.page.push(err instanceof Error ? err.message : String(err));
+			}
+			await new Promise((resolve) => setTimeout(resolve, 1000));
+			return fn(page, errors);
+		});
+	} finally {
+		try {
+			fs.rmSync(dir, { recursive: true, force: true });
+		} catch {
+			/* best-effort cleanup */
+		}
+	}
+}
+
+async function shoot(page: import("puppeteer-core").Page): Promise<Buffer> {
+	const shot = (await page.screenshot({ fullPage: true, type: "png" })) as Buffer;
+	return providerSafePng(Buffer.from(shot));
+}
+
+async function screenshotDemo(html: string): Promise<Buffer> {
+	return withDemoPage(html, (page) => shoot(page));
+}
+
+async function runStep(page: import("puppeteer-core").Page, step: DemoStep): Promise<void> {
+	if (step.action === "wait") {
+		await new Promise((resolve) => setTimeout(resolve, Math.min(Math.max(step.ms ?? 500, 0), 3000)));
+		return;
+	}
+	const selector = step.selector;
+	if (!selector) throw new Error(`${step.action} needs a selector`);
+	const handle = await page.waitForSelector(selector, { timeout: 3000 }).catch(() => null);
+	if (!handle) throw new Error(`no element matches "${selector}"`);
+	if (step.action === "click") {
+		await handle.scrollIntoView();
+		await handle.click();
+	} else if (step.action === "type") {
+		await handle.click();
+		await page.keyboard.type(step.text ?? "");
+	} else if (step.action === "set_value") {
+		const value = step.value ?? "";
+		await handle.evaluate((el, v) => {
+			const input = el as HTMLInputElement;
+			if (input.type === "checkbox") {
+				if (input.checked !== (v === "true")) input.click();
+				return;
+			}
+			input.value = v;
+			input.dispatchEvent(new Event("input", { bubbles: true }));
+			input.dispatchEvent(new Event("change", { bubbles: true }));
+		}, value);
+	} else if (step.action === "drag") {
+		await handle.scrollIntoView();
+		const from = await handle.boundingBox();
+		if (!from) throw new Error(`"${selector}" has no visible box to drag`);
+		let toX = from.x + from.width / 2 + (step.dx ?? 0);
+		let toY = from.y + from.height / 2 + (step.dy ?? 0);
+		if (step.to_selector) {
+			const target = await page.waitForSelector(step.to_selector, { timeout: 3000 }).catch(() => null);
+			const box = await target?.boundingBox();
+			if (!box) throw new Error(`no visible element matches "${step.to_selector}"`);
+			toX = box.x + box.width / 2;
+			toY = box.y + box.height / 2;
+		}
+		await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+		await page.mouse.down();
+		await page.mouse.move(toX, toY, { steps: 12 });
+		await page.mouse.up();
+	} else {
+		throw new Error(`unknown action "${String(step.action)}"`);
+	}
+}
+
+async function interactDemo(html: string, steps: DemoStep[]): Promise<DemoInteractResult> {
+	return withDemoPage(html, async (page, errors) => {
+		const stepLog: string[] = [];
+		const stepErrors: string[] = [];
+		for (const [i, step] of steps.entries()) {
+			const label = `${i + 1}. ${step.action}${step.selector ? ` ${step.selector}` : ""}`;
+			try {
+				await runStep(page, step);
+				stepLog.push(`${label} — ok`);
+			} catch (err) {
+				const msg = err instanceof Error ? err.message : String(err);
+				stepLog.push(`${label} — FAILED: ${msg}`);
+				stepErrors.push(`${label}: ${msg}`);
+				break;
+			}
+		}
+		await new Promise((resolve) => setTimeout(resolve, 400));
+		const png = await shoot(page);
+		return {
+			png,
+			stepLog,
+			stepErrors,
+			consoleErrors: errors.console,
+			pageErrors: errors.page,
+			ok: stepErrors.length === 0 && errors.console.length === 0 && errors.page.length === 0,
+		};
+	});
+}
+
 // ─── SVG rasterization ───────────────────────────────────────────────────────
 
 function svgViewport(svg: string, opts: RenderSvgOptions): { width: number; height: number } {
@@ -530,6 +688,8 @@ export const realHeadless: HeadlessApi = {
 		return browserServiceBinary() === null && resolveChromeExecutablePath() === null ? NO_CHROME_MESSAGE : null;
 	},
 	runDemo,
+	screenshotDemo,
+	interactDemo,
 	renderSvg,
 	renderPdfPages,
 };
