@@ -13,7 +13,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { hasProviderKey, strongKeyless, ZeroKeysPill } from "../components/setup-cta.tsx";
 import type { ModelCatalogResponse } from "../src/core/index.ts";
 import { SetupKeysBody } from "../components/setup-dialog.tsx";
-import { DICTATION_KEYLESS, DEEPGRAM_KEY_ID } from "../components/dictation.tsx";
+import { DICTATION_NEEDS_HANDY, DEEPGRAM_KEY_ID, HANDY_URL } from "../components/dictation.tsx";
 import type { AuthKeyStatus } from "../src/core/auth-keys.ts";
 import type { ProviderKeyInfo } from "../components/settings/keys-section.tsx";
 
@@ -111,9 +111,10 @@ describe("SetupKeysBody — stage 1's self-contained first-key screen", () => {
 	});
 });
 
-describe("the dictation keyless seam (owner dictation trio)", () => {
+describe("the dictation no-engine seam (local engine wave, owner 2026-10-25)", () => {
 	it("the client-authored short line — not the route's dev-speak", () => {
-		assert.equal(DICTATION_KEYLESS, "Dictation needs a Deepgram key");
+		assert.equal(DICTATION_NEEDS_HANDY, "Dictation needs Handy");
+		assert.equal(HANDY_URL, "https://handy.computer");
 	});
 
 	it("the Deepgram row id matches the keys store (KeysSection openRow)", () => {

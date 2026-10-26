@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Loader2Icon, MicIcon } from "lucide-react";
-import { useSettingsDialog } from "@/components/settings/settings-dialog";
 import { Hint } from "@/components/ui/hint";
 
 /**
@@ -79,6 +78,16 @@ import { Hint } from "@/components/ui/hint";
  *     path, which always mints FRESH.
  *   - The honest floor stays: getUserMedia can't be pre-warmed (the mic
  *     indicator would stay lit) — hence the owner's optimistic meter.
+ *
+ * Local engine wave (owner, 2026-10-25): when the desktop has Handy
+ * installed, dictation runs LOCALLY on Handy's selected model (Parakeet by
+ * default) instead of Deepgram — automatic, no setting, no visible change.
+ * The same capture graph runs; frames accumulate in memory instead of
+ * streaming, and Stop POSTs the run's PCM to /api/stt/local (the existing
+ * "stopping" spinner covers the transcription). The deferred-transcript
+ * contract is unchanged. Deepgram stays the fallback when Handy is
+ * missing and a key is set; neither → "Dictation needs Handy", whose
+ * click opens handy.computer.
  */
 
 /*
@@ -107,24 +116,23 @@ export const METER_CELLS = 48;
  *  section's openRow state and the PUT /api/keys/:id seam). */
 export const DEEPGRAM_KEY_ID = "DEEPGRAM_API_KEY";
 
-/** The client-authored KEYLESS line (zero-keys wave, owner 2026-09-25):
- * the token route's raw 503 message is dev-speak ("add it to auth.json
- * (desktop) or .env.local (dev)") — the surface says the short truth
- * instead. Exported for pins; the errored idle button's click recognizes
- * it and deep-links Settings → Keys → the Deepgram row. */
-export const DICTATION_KEYLESS = "Dictation needs a Deepgram key";
+/** The client-authored NO-ENGINE line (local engine wave, owner
+ * 2026-10-25 — replaces the zero-keys wave's "needs a Deepgram key"):
+ * neither Handy nor a Deepgram key. Exported for pins; the errored idle
+ * button's click recognizes it and opens HANDY_URL in the browser. */
+export const DICTATION_NEEDS_HANDY = "Dictation needs Handy";
+export const HANDY_URL = "https://handy.computer";
 
 /** Mint a fresh short-lived token (the route holds the real key
  *  server-side). Module-level: the start path's warm cache and the
  *  reconnect path both bottom out here. The keyless 503 (no
  *  DEEPGRAM_API_KEY) is the route's ONLY 503 — the raw message is
- *  dev-speak, so the error becomes the short client-authored line
- *  (zero-keys wave, owner 2026-09-25). */
+ *  dev-speak, so the error becomes the short client-authored line. */
 async function mintFreshToken(): Promise<string> {
 	const res = await fetch("/api/stt/token");
 	const data = (await res.json()) as { token?: string; message?: string };
 	if (!res.ok || !data.token) {
-		if (res.status === 503) throw new Error(DICTATION_KEYLESS);
+		if (res.status === 503) throw new Error(DICTATION_NEEDS_HANDY);
 		throw new Error(data.message ?? `token route ${res.status}`);
 	}
 	return data.token;
@@ -167,6 +175,33 @@ export function createWarmMinter(
 }
 
 const warmTokens = createWarmMinter(mintFreshToken);
+
+/** Mirrors src/server/stt-local.ts (type-only; no server import here). */
+export type DictationEngine = "handy" | "deepgram" | "none";
+
+/** The machine's engine (/api/stt/engine), re-asked at every start so
+ *  installing Handy mid-session takes effect. `lastEngine` gates the
+ *  warm-token pre-mint: a Handy machine never mints Deepgram tokens. */
+let lastEngine: DictationEngine | null = null;
+
+async function fetchEngine(): Promise<DictationEngine> {
+	const res = await fetch("/api/stt/engine");
+	const data = (await res.json()) as { engine?: DictationEngine };
+	lastEngine = data.engine ?? "none";
+	return lastEngine;
+}
+
+function refreshWarmToken() {
+	if (lastEngine === "deepgram") warmTokens.refresh();
+}
+
+/** One run's concatenated linear16 PCM → Handy's transcript. */
+async function transcribeLocal(pcm: Blob): Promise<string> {
+	const res = await fetch("/api/stt/local", { method: "POST", body: pcm });
+	const data = (await res.json()) as { text?: string; message?: string };
+	if (!res.ok) throw new Error(data.message ?? `local route ${res.status}`);
+	return data.text ?? "";
+}
 
 /* Persistent capture graph (mitigation C, owner 2026-09-27): one
  * app-lifetime AudioContext + a module-load memo. Created under the
@@ -315,6 +350,10 @@ export function useDictation({ append }: { append: (text: string) => void }): Di
 	/** Resolvers waiting for the run to fully end (finish(), owner
 	 *  2026-10-01): released by cleanup() — every terminal path runs it. */
 	const waitersRef = useRef<Array<() => void>>([]);
+	/** This run's engine (set at start) and, for Handy, its captured
+	 *  frames — the whole run, uncapped (32KB/s), POSTed once at stop. */
+	const engineRef = useRef<DictationEngine>("none");
+	const localRef = useRef<BlobPart[]>([]);
 
 	/** Flush the buffered transcript into the primary input — question claim
 	 *  first, composer fallback. Called exactly once per run, at cleanup; the
@@ -336,6 +375,7 @@ export function useDictation({ append }: { append: (text: string) => void }): Di
 			safetyRef.current = null;
 		}
 		pendingRef.current = [];
+		localRef.current = [];
 		for (const track of streamRef.current?.getTracks() ?? []) track.stop();
 		streamRef.current = null;
 		sourceRef.current?.disconnect();
@@ -356,8 +396,8 @@ export function useDictation({ append }: { append: (text: string) => void }): Di
 		// target field with the dictated tail already in it.
 		for (const w of waitersRef.current.splice(0)) w();
 		// Pre-mint for the next run (mitigation D) — best-effort; a keyless
-		// page just doesn't warm.
-		warmTokens.refresh();
+		// page just doesn't warm, and a Handy machine never mints.
+		refreshWarmToken();
 	}, []);
 
 	/** Open the Deepgram socket and wire its messages. `gen` guards staleness. */
@@ -432,16 +472,33 @@ export function useDictation({ append }: { append: (text: string) => void }): Di
 		reconnectsRef.current = 0;
 		bufferRef.current = []; // fresh run, fresh buffer (round 2)
 		pendingRef.current = []; // fresh run, fresh queue (mitigation A)
+		localRef.current = [];
 		const gen = ++genRef.current;
+
+		// The engine first (a local fs check, ~ms): no engine means no mic
+		// prompt for a run that can't transcribe.
+		let engine: DictationEngine;
+		try {
+			engine = await fetchEngine();
+		} catch {
+			engine = "none";
+		}
+		if (gen !== genRef.current) return;
+		if (engine === "none") {
+			setError(DICTATION_NEEDS_HANDY);
+			cleanup();
+			return;
+		}
+		engineRef.current = engine;
 
 		// Mitigation D: the warm token (pre-minted at mount / after the last
 		// run) resolves ~instantly; a cold/keyless mint surfaces below. The
 		// mic is the long pole (macOS HAL + APM init) and gates everything —
 		// the token runs concurrently with it. 127.0.0.1 is a secure
 		// context, so getUserMedia works without TLS; macOS TCC prompts on
-		// first use.
-		const tokenPromise = warmTokens.mint();
-		tokenPromise.catch(() => {}); // surfaced below; no unhandled rejection
+		// first use. Handy runs need no token.
+		const tokenPromise = engine === "deepgram" ? warmTokens.mint() : null;
+		tokenPromise?.catch(() => {}); // surfaced below; no unhandled rejection
 		const micPromise = navigator.mediaDevices.getUserMedia({
 			audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
 		});
@@ -468,6 +525,11 @@ export function useDictation({ append }: { append: (text: string) => void }): Di
 				if (msg.type === "level") {
 					levelRef.current = msg.rms ?? 0; // never reset to zero (dictate pattern)
 				} else if (msg.type === "audio") {
+					// Handy: the whole run accumulates for the one POST at stop.
+					if (engine === "handy") {
+						localRef.current.push(msg.buffer!);
+						return;
+					}
 					const ws = wsRef.current;
 					if (ws && ws.readyState === WebSocket.OPEN) ws.send(msg.buffer!);
 					// Mitigation A: not OPEN yet (handshake or reconnect gap) —
@@ -497,6 +559,11 @@ export function useDictation({ append }: { append: (text: string) => void }): Di
 			return;
 		}
 		if (gen !== genRef.current) return;
+		// Handy: the graph is live and capturing — that IS recording.
+		if (!tokenPromise) {
+			setPhase("recording");
+			return;
+		}
 		let token: string;
 		try {
 			token = await tokenPromise;
@@ -525,6 +592,27 @@ export function useDictation({ append }: { append: (text: string) => void }): Di
 		sourceRef.current = null;
 		workletRef.current?.disconnect();
 		workletRef.current = null;
+
+		// Handy: the captured run goes out in one POST; its transcript joins
+		// the deferred buffer and cleanup() flushes it. A cancel mid-POST
+		// bumps the generation, so a late result is dropped. (A Handy run
+		// still "connecting" captured nothing — it falls through to cleanup.)
+		if (engineRef.current === "handy" && phase === "recording") {
+			const pcm = new Blob(localRef.current);
+			localRef.current = [];
+			transcribeLocal(pcm)
+				.then((text) => {
+					if (gen !== genRef.current) return;
+					if (text) bufferRef.current.push(text);
+					cleanup();
+				})
+				.catch((e: unknown) => {
+					if (gen !== genRef.current) return;
+					setError(e instanceof Error ? e.message : "Local transcription failed");
+					cleanup();
+				});
+			return;
+		}
 
 		const ws = wsRef.current;
 		if (ws && ws.readyState === WebSocket.OPEN) {
@@ -585,7 +673,11 @@ export function useDictation({ append }: { append: (text: string) => void }): Di
 	// page owns ONE hook instance, and only the mounted page's listener is
 	// attached.
 	useEffect(() => {
-		warmTokens.refresh(); // pre-mint at mount (mitigation D) — silent if keyless
+		// Pre-mint at mount (mitigation D) — Deepgram machines only; silent
+		// on any failure.
+		fetchEngine()
+			.then(refreshWarmToken)
+			.catch(() => {});
 	}, []);
 	useEffect(() => {
 		window.addEventListener("lh:kbd-toggle-dictation", toggle);
@@ -623,12 +715,11 @@ export function useDictation({ append }: { append: (text: string) => void }): Di
  */
 export function DictationBar({ dictation }: { dictation: Dictation }) {
 	const { phase, error, levelRef, toggle, active, clearError } = dictation;
-	const { open: openSettings } = useSettingsDialog();
-	/** The keyless click (zero-keys wave, owner dictation trio): the errored
-	 *  idle button deep-links Settings → Keys → the Deepgram row and clears
+	/** The no-engine click (local engine wave, owner 2026-10-25): the
+	 *  errored idle button opens handy.computer in the browser and clears
 	 *  the error — the surface is clean when the user returns. Any other
 	 *  error keeps the old behavior (click = retry, which clears). */
-	const keyless = error === DICTATION_KEYLESS;
+	const needsHandy = error === DICTATION_NEEDS_HANDY;
 	const [levels, setLevels] = useState<number[]>(() => new Array(METER_CELLS).fill(0));
 	const recording = phase === "recording" || phase === "stopping";
 	/** Adaptive cell count (owner round 2): derived from the meter's
@@ -685,9 +776,9 @@ export function DictationBar({ dictation }: { dictation: Dictation }) {
 				<button
 					type="button"
 					onClick={() => {
-						if (keyless) {
+						if (needsHandy) {
 							clearError();
-							openSettings("keys", DEEPGRAM_KEY_ID);
+							window.open(HANDY_URL, "_blank"); // Electron → shell.openExternal
 						} else {
 							toggle();
 						}
