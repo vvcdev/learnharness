@@ -111,7 +111,7 @@ export function useChatSession({ chatId, initialMessages, initiallyInFlight }: U
 		[model],
 	);
 	const answerSilently = useCallback(
-		(toolCallId: string, answer: QuestionAnswerData) => void model.answerSilently(toolCallId, answer),
+		(toolCallId: string, answer: QuestionAnswerData) => model.answerSilently(toolCallId, answer),
 		[model],
 	);
 	const dismissQuestion = useCallback(

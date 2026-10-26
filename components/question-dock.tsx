@@ -72,7 +72,9 @@ export interface QuestionDockProps {
 	 */
 	reveal?: boolean;
 	onExpand: () => void;
-	onSubmit: (output: QuestionAnswerData) => void;
+	/** `next`: ⌘Enter on a practice MCQ (owner 2026-10-26) — submit and
+	 *  go straight to the next question, no stop on the reveal. */
+	onSubmit: (output: QuestionAnswerData, opts?: { next?: boolean }) => void;
 	/** Escape in a question field stops dictation (STT wave) — threaded
 	 *  from the page that owns the dictation hook. */
 	onEscape?: () => void;
@@ -102,6 +104,9 @@ export interface QuestionFormBatchSlot {
 	label: string;
 	submitLabel: string;
 	enterEnabled: boolean;
+	/** AUTO-SAVE (owner 2026-10-26): the question's live answer on every
+	 *  change — a pick is saved without a click; undefined = unanswered. */
+	onDraft: (answer: QuestionAnswerData | undefined) => void;
 }
 
 export function QuestionDock({
@@ -374,7 +379,7 @@ export function QuestionDockForm({
 	const canSubmitNow = () =>
 		canSubmit || (qd.mode === "text" ? answerTextRef.current.trim().length > 0 : false) || voice.ref.current.notes.length > 0;
 
-	const submit = () => {
+	const submit = (andNext = false) => {
 		// A live run may BE the answer: let it finish, then gate (doSubmit).
 		if ((!canSubmit && !isDictationActive()) || compactionRunning || images.uploading) return;
 		/* FINISH DICTATION FIRST (owner, 2026-10-01): Enter may arrive while
@@ -384,13 +389,17 @@ export function QuestionDockForm({
 		 * forgotten stop. The field values below come from the REF mirrors
 		 * because the flush lands via setState after an await. */
 		if (!isDictationActive()) {
-			doSubmit();
+			doSubmit(andNext);
 			return;
 		}
-		void finishDictation().then(doSubmit);
+		void finishDictation().then(() => doSubmit(andNext));
 	};
-	const doSubmit = () => {
+	const doSubmit = (andNext: boolean) => {
 		if (!canSubmitNow()) return;
+		onSubmit(currentAnswer(), andNext ? { next: true } : undefined);
+	};
+	/** The answer exactly as the form stands (the REF mirrors). */
+	const currentAnswer = () => {
 		const req: AnswerRequest = {
 			dontKnow: sel.dontKnow,
 			values: [...sel.selected].map((i) => qd.options[i]!.value),
@@ -404,8 +413,33 @@ export function QuestionDockForm({
 			// "untouched"); buildAnswer drops it on "I don't know".
 			confidence: kind === "quiz" ? CONFIDENCE_STOPS[confIdx] : undefined,
 		};
-		onSubmit(buildAnswer(qd, req, toolName));
+		return buildAnswer(qd, req, toolName);
 	};
+
+	/* Batch auto-save (owner 2026-10-26): every change reports the live
+	 * answer — picks, "I don't know", confidence, thinking, images. */
+	const onDraft = batch?.onDraft;
+	useEffect(() => {
+		if (!onDraft) return;
+		onDraft(canSubmit ? currentAnswer() : undefined);
+		// currentAnswer reads refs; these are the inputs that move it.
+	}, [onDraft, canSubmit, sel, thinking, confIdx, voice.value, images.images]);
+
+	/* ⌘ENTER SKIPS THE REVEAL (owner 2026-10-26): on a single practice
+	 * MCQ, ⌘/Ctrl+Enter submits AND moves on — the graded card still lands
+	 * in the transcript. From anywhere while the dock is up; the thinking
+	 * field claims it first (preventDefault) and this listener stands down. */
+	const skipToNext = toolName === "mcq" && !batch;
+	useEffect(() => {
+		if (!skipToNext || !active) return;
+		const onKeyDown = (e: KeyboardEvent) => {
+			if (e.key !== "Enter" || !(e.metaKey || e.ctrlKey) || e.defaultPrevented) return;
+			e.preventDefault();
+			submit(true);
+		};
+		document.addEventListener("keydown", onKeyDown);
+		return () => document.removeEventListener("keydown", onKeyDown);
+	});
 
 	/* ENTER SUBMITS FROM ANYWHERE (owner round 6, 2026-10-05): the same
 	 * law as the practice dock — dictated answers rarely focus the field.
@@ -900,9 +934,10 @@ export function QuestionDockForm({
 								// THE STANDARD CHORD (owner round 5, 2026-10-05): Enter
 								// submits, Shift+Enter is a newline, ⌘/Ctrl+Enter works
 								// too — identical to the practice dock and the composer.
+								// On a practice MCQ ⌘/Ctrl+Enter also skips to the next.
 								if (e.key === "Enter" && (!e.shiftKey || e.metaKey || e.ctrlKey)) {
 									e.preventDefault();
-									submit();
+									submit(skipToNext && (e.metaKey || e.ctrlKey));
 								}
 							}}
 							placeholder="Why this answer? Whatever comes to mind."
@@ -919,7 +954,11 @@ export function QuestionDockForm({
 					<div className="flex items-center justify-between gap-2 p-1">
 						<ImageAttachButton draft={images} />
 						<span aria-hidden className="text-xs text-muted-foreground">
-								{compactionRunning ? "compacting session…" : "↵ submits · ⇧↵ newline"}
+								{compactionRunning
+									? "compacting session…"
+									: skipToNext
+										? "↵ submits · ⌘↵ submit & next"
+										: "↵ submits · ⇧↵ newline"}
 						</span>
 						<Button
 							type="submit"

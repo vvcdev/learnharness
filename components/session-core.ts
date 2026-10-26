@@ -699,8 +699,8 @@ export class SessionModel {
 	 * user's choice; the next plain send is the wake. On failure the
 	 * durable record wins: the error surfaces, the record-changed sync
 	 * (or any later refetch) replaces the optimistic append with truth. */
-	async dismissQuestion(toolCallId: string, answer: QuestionAnswerData, type: "dismiss" | "practice-answer" = "dismiss"): Promise<void> {
-		if (!this.readyRef) return;
+	async dismissQuestion(toolCallId: string, answer: QuestionAnswerData, type: "dismiss" | "practice-answer" = "dismiss"): Promise<boolean> {
+		if (!this.readyRef) return false;
 		const tool = pendingCallTool([...this.base, ...this.tail], toolCallId) ?? "quiz";
 		this.mutate(() => {
 			this.tail = [...this.tail, { ...newAnswerResult(toolCallId, tool, answer), id: localId() }];
@@ -712,15 +712,17 @@ export class SessionModel {
 				body: JSON.stringify({ input: { type, toolCallId, answer } }),
 			});
 			if (!res.ok) throw new Error(`The ${type === "dismiss" ? "dismissal" : "answer"} failed (${res.status}).`);
+			return true;
 		} catch (err) {
 			this.setError((err as Error).message);
+			return false;
 		}
 	}
 
 	/** A practice MCQ answer (owner 2026-10-26): the same silent route as
 	 *  a dismissal — the graded result lands optimistically (the reveal
 	 *  shows at once), persists turn-less, and waits for Next. */
-	answerSilently(toolCallId: string, answer: QuestionAnswerData): Promise<void> {
+	answerSilently(toolCallId: string, answer: QuestionAnswerData): Promise<boolean> {
 		return this.dismissQuestion(toolCallId, answer, "practice-answer");
 	}
 

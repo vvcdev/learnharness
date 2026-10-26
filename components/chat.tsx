@@ -1763,7 +1763,7 @@ export function Chat({
 							placeholder={nextReady ? "Ask anything, or press Enter for the next one." : undefined}
 						/>
 					}
-					onSubmitAnswer={(output) => {
+					onSubmitAnswer={(output, opts) => {
 						if (!pending) return;
 						// THE ANSWER IS THE QUESTION CALL'S TOOL RESULT (fork 1, owner
 						// 2026-09-26): one input event, one turn — the hook appends
@@ -1777,7 +1777,10 @@ export function Chat({
 						// graded card shows at once, no turn runs — the agent reads
 						// the answer with the learner's next input.
 						if (isPracticeMcqTool(pending.tool)) {
-							answerSilently(pending.toolCallId, output);
+							const saved = answerSilently(pending.toolCallId, output);
+							// ⌘Enter (owner 2026-10-26): straight on to the next
+							// question once the answer has landed in the record.
+							if (opts?.next) void saved.then((ok) => ok && send({ type: "next" }));
 							return;
 						}
 						const reading = readingThinkingRef.current.trim() || undefined;
@@ -1998,7 +2001,7 @@ function DockOverlay({
 	contextTokens: number | null;
 	pricing?: SessionPricing;
 	composer: React.ReactNode;
-	onSubmitAnswer: (output: QuestionAnswerData) => void;
+	onSubmitAnswer: (output: QuestionAnswerData, opts?: { next?: boolean }) => void;
 	/** The model control's pass-through (the stats bar hosts it). */
 	chatId: string;
 	/** Reports the dock's settled height (block + gradient) — ChatView's

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 import { AnsweredCard } from "@/components/answered-card";
 import { QuestionDockForm } from "@/components/question-dock";
@@ -43,9 +43,31 @@ export function McqBatchDock({
 	onEscape?: () => void;
 	compactionRunning?: boolean;
 }) {
-	const questions = parseBatchQuestions(input);
+	const questions = useMemo(() => parseBatchQuestions(input), [input]);
 	const [idx, setIdx] = useState(0);
 	const [answers, setAnswers] = useState<(QuestionAnswerData | undefined)[]>([]);
+	/* AUTO-SAVE (owner 2026-10-26): each question's form reports its live
+	 * answer — a pick is saved the moment it is made, no button. One
+	 * stable callback per index so the forms' effects don't refire. */
+	const drafts = useMemo(
+		() =>
+			Array.from({ length: questions?.length ?? 0 }, (_, i) => (answer: QuestionAnswerData | undefined) =>
+				setAnswers((prev) => {
+					if (prev[i] === answer) return prev;
+					const next = [...prev];
+					next[i] = answer;
+					return next;
+				}),
+			),
+		[questions?.length],
+	);
+	const advance = useCallback(
+		(from: number) => {
+			if (!questions) return;
+			setIdx(Math.min(from + 1, questions.length - 1));
+		},
+		[questions],
+	);
 	if (!questions) {
 		return (
 			<div data-testid="malformed-question" className="rounded-xl border border-dashed bg-card/60 p-3 text-sm text-muted-foreground">
@@ -56,20 +78,6 @@ export function McqBatchDock({
 	const total = questions.length;
 	const done = answers.filter(Boolean).length;
 	const allDone = done === total;
-
-	const save = (i: number, answer: QuestionAnswerData) => {
-		const next = [...answers];
-		next[i] = answer;
-		setAnswers(next);
-		// Advance to the next unanswered question (wrapping), else stay.
-		for (let step = 1; step <= total; step++) {
-			const j = (i + step) % total;
-			if (!next[j]) {
-				setIdx(j);
-				return;
-			}
-		}
-	};
 
 	const finish = () => {
 		if (!allDone || compactionRunning) return;
@@ -159,13 +167,16 @@ export function McqBatchDock({
 						input={q}
 						active={expanded && i === idx}
 						dictationClaim={expanded && i === idx}
-						onSubmit={(answer) => save(i, answer)}
+						onSubmit={() => (i === total - 1 ? finish() : advance(i))}
 						onEscape={onEscape}
 						compactionRunning={compactionRunning}
 						batch={{
 							label: `Question ${i + 1} of ${total}`,
-							submitLabel: answers[i] ? "Update answer" : "Save answer",
-							enterEnabled: expanded && i === idx && !answers[i],
+							// Picks save themselves; the button (and Enter) moves on —
+							// on the last question it finishes the batch.
+							submitLabel: i === total - 1 ? "Finish batch" : "Next question",
+							enterEnabled: expanded && i === idx,
+							onDraft: drafts[i]!,
 						}}
 					/>
 				</div>
