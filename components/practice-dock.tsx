@@ -100,7 +100,9 @@ export function PracticeDock({ problemCallId, input, expanded, onExpand, onSubmi
 			>
 				<ChevronRightIcon className="size-4 shrink-0 rotate-90" />
 				<span className="font-medium">Problem</span>
-				<span className="min-w-0 flex-1 truncate">{input.statement}</span>
+				{/* One plain line: emphasis/code markers stripped (the raw
+				    "**included**" read as broken rendering, owner 2026-10-25). */}
+				<span className="min-w-0 flex-1 truncate">{plainStatement(input.statement)}</span>
 			</button>
 		);
 	}
@@ -179,4 +181,13 @@ export function PracticeDock({ problemCallId, input, expanded, onExpand, onSubmi
 			<VoiceNotesBox value={voice.value} onClear={voice.clear} className="mx-1.5 mb-1.5" />
 		</div>
 	);
+}
+
+/** The collapsed bar's one-line preview: markdown emphasis and code
+ *  markers dropped, whitespace collapsed. */
+export function plainStatement<T>(statement: T): T | string {
+	// Non-strings pass through exactly as before (the boundary-converted
+	// numeric statement pin).
+	if (typeof statement !== "string") return statement;
+	return statement.replace(/\*\*|__|`/g, "").replace(/\s+/g, " ").trim();
 }

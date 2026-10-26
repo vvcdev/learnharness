@@ -171,6 +171,27 @@ function replaceEscapedDollars(content: string): string {
 	return replaced;
 }
 
+/**
+ * Is the lone `$` at `i` a currency sign rather than a math opener? Only
+ * when a digit follows AND no Pandoc-valid closer exists before the
+ * paragraph ends: a single unescaped `$` with non-whitespace right before
+ * it and no digit right after it. "$2x+1$" keeps its math; "$5M and $3M"
+ * and "costs $400 total" read as money.
+ */
+export function isCurrencyDollar(text: string, i: number): boolean {
+	if (!/[0-9]/.test(text[i + 1] ?? "")) return false;
+	const end = text.indexOf("\n\n", i);
+	const stop = end === -1 ? text.length : end;
+	for (let j = i + 1; j < stop; j++) {
+		if (text[j] !== "$" || isEscaped(text, j)) continue;
+		if (text[j + 1] === "$" || text[j - 1] === "$") continue; // part of a $$ run
+		const before = text[j - 1] ?? "";
+		const after = text[j + 1] ?? "";
+		if (!/\s/.test(before) && !/[0-9]/.test(after)) return false;
+	}
+	return true;
+}
+
 export function transformMathDelimiters(markdown: string): string {
 	const out: string[] = [];
 	let i = 0;
@@ -259,6 +280,15 @@ export function transformMathDelimiters(markdown: string): string {
 		// code, and unbalanced spans are untouched.
 		if (ch === "$" && !isEscaped(markdown, i)) {
 			const run = dollarRun(markdown, i);
+			// CURRENCY (owner, 2026-10-25): "$2M … and $5M" must not pair into
+			// one math span (the whole stretch rendered as italic KaTeX and
+			// overflowed the dock). A lone `$` before a digit with no
+			// Pandoc-valid closer in its paragraph is a literal dollar sign.
+			if (run === 1 && isCurrencyDollar(markdown, i)) {
+				out.push("\\$");
+				i += 1;
+				continue;
+			}
 			if (run === 1) {
 				const closeAt = findInlineDollarCloseEscapeAware(markdown, i + 1);
 				if (closeAt !== -1) {

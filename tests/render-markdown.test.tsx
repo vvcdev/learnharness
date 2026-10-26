@@ -53,9 +53,9 @@ describe("math delimiter transform (pure unit)", () => {
 		);
 	});
 
-	it("leaves currency untouched", () => {
+	it("escapes currency so it can't pair into math (owner 2026-10-25)", () => {
 		const md = "It costs $5 and $10 more. $$big$$ sums too.";
-		assert.equal(transformMathDelimiters(md), md);
+		assert.equal(transformMathDelimiters(md), "It costs \\$5 and \\$10 more. $$big$$ sums too.");
 	});
 
 	it("leaves escaped delimiters untouched (\\\\( is a literal backslash)", () => {
@@ -285,9 +285,9 @@ describe("escaped dollars inside math — transform units", () => {
 		assert.equal(transformMathDelimiters(md), md);
 	});
 
-	it("leaves prose escaped dollars and bare currency untouched", () => {
+	it("leaves prose escaped dollars untouched; bare currency is escaped", () => {
 		const md = "It costs \\$5 flat, then $5 and $10 more.";
-		assert.equal(transformMathDelimiters(md), md);
+		assert.equal(transformMathDelimiters(md), "It costs \\$5 flat, then \\$5 and \\$10 more.");
 	});
 
 	it("leaves display spans untouched — a lone $ can't close $$, \\$ already survives", () => {
@@ -444,3 +444,31 @@ describe("over-escaped command heal — doubled backslashes in tool args (owner 
 	});
 });
 
+
+describe("currency dollars (owner 2026-10-25) — money is not math", async () => {
+	const { transformMathDelimiters, isCurrencyDollar } = await import("../src/core/math-delims.ts");
+	const { plainStatement } = await import("../components/practice-dock.tsx");
+
+	it("two amounts in one sentence stay money", () => {
+		const s = "The government pays $2M in benefits and $5M for roads.";
+		assert.equal(transformMathDelimiters(s), "The government pays \\$2M in benefits and \\$5M for roads.");
+		assert.equal(
+			transformMathDelimiters("Tires worth $400 bought for a car sold at $20,000."),
+			"Tires worth \\$400 bought for a car sold at \\$20,000.",
+		);
+	});
+
+	it("real math that starts with a digit keeps its delimiters", () => {
+		assert.equal(transformMathDelimiters("Solve $2x+1=5$ now."), "Solve $2x+1=5$ now.");
+		assert.equal(isCurrencyDollar("$x$", 0), false);
+		assert.equal(transformMathDelimiters("Components $C, I, G$ and $X - M$."), "Components $C, I, G$ and $X - M$.");
+	});
+
+	it("code spans are untouched", () => {
+		assert.equal(transformMathDelimiters("`costs $5`"), "`costs $5`");
+	});
+
+	it("the collapsed problem bar drops emphasis markers", () => {
+		assert.equal(plainStatement("Classify as **included** or `x`\n\nnext"), "Classify as included or x next");
+	});
+});
