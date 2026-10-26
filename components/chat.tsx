@@ -226,7 +226,7 @@ export function Chat({
 	/** The session kind (practice sessions, owner 2026-10-04): practice
 	 *  renders no phase chip (no probe→teach arc applies) and a Practice
 	 *  tag rides the header instead. */
-	kind?: "teach" | "practice";
+	kind?: "teach" | "practice" | "chat";
 	initialPrompt?: string;
 	/** The opening's spoken part (voice-everywhere wave, owner 2026-10-25). */
 	initialVoice?: UserVoiceInput;
@@ -1402,14 +1402,14 @@ export function Chat({
 					{/* Practice (owner, 2026-10-04): the coverage ring hides —
 				    practice never extracts, so an ever-filling ring with no
 				    run behind it would lie. */}
-					{kind !== "practice" && <CoverageRing chatId={chatId} refreshKey={coverageTick} />}
+					{kind === "teach" && <CoverageRing chatId={chatId} refreshKey={coverageTick} />}
 					{/* The category chip (owner, 2026-10-25): TEACHING / PRACTICE,
 					    colored and clickable — opens the sidebar on that section.
 					    Teaching keeps its phase label beside it; practice has no
 					    phase arc. */}
-					<SessionKindChip kind={kind === "practice" ? "practice" : "teach"} />
+					<SessionKindChip kind={kind} />
 					{kind === "practice" && <PracticeFormatChip chatId={chatId} value={practice} onChange={setPractice} />}
-					{kind !== "practice" && <PhaseChip phase={phases.at(-1) ?? "probe"} />}
+					{kind === "teach" && <PhaseChip phase={phases.at(-1) ?? "probe"} />}
 				</TopBar>
 
 				<SessionFind scopeRef={sessionFindScopeRef} scrollContextRef={scrollContextRef} />
@@ -1821,7 +1821,9 @@ export function Chat({
 							nextProblem={nextReady}
 							nextLabel={nextItemLabel(practice)}
 							onNext={sendNext}
-							placeholder={nextReady ? "Ask anything, or press Enter for the next one." : undefined}
+							placeholder={
+								nextReady ? "Ask anything, or press Enter for the next one." : kind === "chat" ? "Ask anything…" : undefined
+							}
 						/>
 					}
 					onSubmitAnswer={(output, opts) => {

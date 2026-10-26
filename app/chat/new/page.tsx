@@ -25,9 +25,9 @@ export default async function NewSessionPage({
 		<NewSession
 			// Keyed by mode: switching +Teaching ↔ +Practice remounts the draft
 			// so no state (or closure) from the other kind survives.
-			key={mode === "practice" ? "practice" : "teach"}
+			key={mode === "practice" || mode === "chat" ? mode : "teach"}
 			initialConfigured={slotsConfigured(readSettingsRecord()?.models)}
-			mode={mode === "practice" ? "practice" : "teach"}
+			mode={mode === "practice" || mode === "chat" ? mode : "teach"}
 		/>
 	);
 }

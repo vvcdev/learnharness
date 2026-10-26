@@ -48,7 +48,7 @@ const DOCK = "mx-auto w-full max-w-[46rem] px-4";
 export async function startDraftSession(
 	text: string,
 	fetchLike: typeof fetch,
-	mode?: "practice",
+	mode?: "practice" | "chat",
 	picks?: readonly DraftPick[],
 	/** The sidebar title when it isn't the text — a voice opening's
 	 *  transcript (voice-everywhere wave, owner 2026-10-25). */
@@ -74,7 +74,9 @@ export async function startDraftSession(
 						...(picks && picks.length > 0 ? { graphContext: { propositions: picks } } : {}),
 						...(practice ? { practice } : {}),
 					}
-				: { title: name },
+				: mode === "chat"
+					? { title: name, kind: "chat" }
+					: { title: name },
 		),
 	});
 	const { id } = (await res.json()) as { id: string };
@@ -119,7 +121,7 @@ export function DraftShell({
 	/** The practice draft (owner, 2026-10-04): ?mode=practice — the
 	 *  created session carries kind:"practice" and the copy changes
 	 *  (the practice agent opens; no probing). */
-	mode?: "teach" | "practice";
+	mode?: "teach" | "practice" | "chat";
 	/** The practice format picker (owner 2026-10-26) — practice drafts. */
 	practice?: PracticeSettings;
 	onPractice?: (next: PracticeSettings) => void;
@@ -208,11 +210,13 @@ export function DraftShell({
 						<Conversation className="h-full min-w-0 flex-1" initial="instant">
 							<ConversationContent className="min-h-full gap-0 p-0">
 								<ConversationEmptyState
-									title={mode === "practice" ? "New practice session" : "New session"}
+									title={mode === "practice" ? "New practice session" : mode === "chat" ? "New chat" : "New session"}
 									description={
 										mode === "practice"
 											? "Pick nodes from your knowledge graph, describe what you want to practice, or bring your own problem."
-											: "The teacher will open by probing what you already know."
+											: mode === "chat"
+												? "Ask anything — straight answers, graphs, and your own files. No quizzes."
+												: "The teacher will open by probing what you already know."
 									}
 								/>
 							</ConversationContent>
@@ -257,7 +261,9 @@ export function DraftShell({
 										// input (owner refinement round, 2026-09-24) — no lesson has
 										// started yet, so the composer must not read like one is in
 										// flight.
-										placeholder={mode === "practice" ? "What do you want to practice?" : "What do you want to learn?"}
+										placeholder={
+											mode === "practice" ? "What do you want to practice?" : mode === "chat" ? "Ask anything…" : "What do you want to learn?"
+										}
 									/>
 								</div>
 								<StatsBar
@@ -282,7 +288,7 @@ export function DraftShell({
 	);
 }
 
-export function NewSession({ initialConfigured, mode = "teach" }: { initialConfigured: boolean; mode?: "teach" | "practice" }) {
+export function NewSession({ initialConfigured, mode = "teach" }: { initialConfigured: boolean; mode?: "teach" | "practice" | "chat" }) {
 	const router = useRouter();
 	const [text, setText] = useState("");
 	/* The draft MIRROR ("nothing gets lost" round, 2026-10-01): the shell's
@@ -385,7 +391,7 @@ export function NewSession({ initialConfigured, mode = "teach" }: { initialConfi
 		void startDraftSession(
 			opening,
 			fetch,
-			mode === "practice" ? "practice" : undefined,
+			mode === "practice" || mode === "chat" ? mode : undefined,
 			mode === "practice" ? picksRef.current : undefined,
 			opening || spoken,
 			mode === "practice" ? practiceRef.current : undefined,

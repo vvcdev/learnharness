@@ -15,6 +15,7 @@ import {
 	type TeacherToolContext,
 } from "./tools.ts";
 import { practiceTools, type PracticeToolContext } from "./tools/practice.ts";
+import { chatTools, type ChatToolContext } from "./tools/chat.ts";
 import { healToolRecord } from "./tools/heal.ts";
 import { quizInputObject, quizInputProblems } from "../core/question-core.ts";
 import { QUESTION_TOOLS, type EnabledTools } from "../core/pending.ts";
@@ -48,7 +49,7 @@ import { usageWasAdmitted } from "./subscription-request-cycle.ts";
 
 /** Which agent's prompt directory to compose. Practice (2026-10-04)
  *  composes ONLY its own directory — see prompt-segments.ts. */
-export type AgentKind = "prober" | "teacher" | "practice";
+export type AgentKind = "prober" | "teacher" | "practice" | "chat";
 
 // P2 (2026-09-19): segment discovery + override resolution live in ONE
 // canonical place now — src/store/prompt-overrides.ts (listSourceSegments
@@ -88,6 +89,7 @@ const composedInstructions: Record<AgentKind, string> = {
 	prober: composeInstructions("prober"),
 	teacher: composeInstructions("teacher"),
 	practice: composeInstructions("practice"),
+	chat: composeInstructions("chat"),
 };
 
 // Money channel (wave 4): the chat-handler passes a per-turn collector;
@@ -326,8 +328,20 @@ export function createPracticeAgent(ctx: PracticeToolContext, opts: AgentBuildOp
 	return baseAgentOptions("practice", opts, Object.values(tools));
 }
 
+/**
+ * The CHAT agent (owner 2026-10-26): a plain Q&A tutor for kind:"chat"
+ * sessions — answers directly; no probing, plan, or quizzes. Tools: the
+ * learner's files + PDFs, research, demos and visuals, the map readers
+ * (behind the same settings gate), and Desmos (tools/chat.ts).
+ */
+export function createChatAgent(ctx: ChatToolContext, opts: AgentBuildOptions = {}) {
+	const tools = opts.tools ?? chatTools(ctx);
+	return baseAgentOptions("chat", opts, Object.values(tools));
+}
+
 export type ProberAgent = ReturnType<typeof createProberAgent>;
 export type TeacherAgent = ReturnType<typeof createTeacherAgent>;
 export type PracticeAgent = ReturnType<typeof createPracticeAgent>;
-export type TeachingAgent = ProberAgent | TeacherAgent | PracticeAgent;
+export type ChatAgent = ReturnType<typeof createChatAgent>;
+export type TeachingAgent = ProberAgent | TeacherAgent | PracticeAgent | ChatAgent;
 

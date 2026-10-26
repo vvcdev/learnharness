@@ -1,6 +1,6 @@
 "use client";
 
-import { DumbbellIcon, GraduationCapIcon } from "lucide-react";
+import { DumbbellIcon, GraduationCapIcon, MessageCircleIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /**
@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils";
  * for SHOW_SESSION_KIND_EVENT).
  */
 
-export type SessionKind = "teach" | "practice";
+export type SessionKind = "teach" | "practice" | "chat";
 
 export const SHOW_SESSION_KIND_EVENT = "lh:show-session-kind";
 
@@ -21,23 +21,27 @@ export function showSessionKind(kind: SessionKind) {
 
 export function SessionKindChip({ kind }: { kind: SessionKind }) {
 	const practice = kind === "practice";
-	const Icon = practice ? DumbbellIcon : GraduationCapIcon;
+	const chat = kind === "chat";
+	const Icon = practice ? DumbbellIcon : chat ? MessageCircleIcon : GraduationCapIcon;
+	const label = practice ? "Practice" : chat ? "Chat" : "Teaching";
 	return (
 		<button
 			type="button"
 			data-testid="session-kind-chip"
 			data-kind={kind}
 			onClick={() => showSessionKind(kind)}
-			aria-label={`${practice ? "Practice" : "Teaching"} session: show ${practice ? "practice" : "teaching"} sessions`}
+			aria-label={`${label} session: show ${label.toLowerCase()} sessions`}
 			className={cn(
 				"lh-no-drag flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs font-medium uppercase tracking-wide transition-colors",
 				practice
 					? "border-green-500/40 bg-green-500/10 text-green-500 hover:bg-green-500/20"
-					: "border-blue-500/40 bg-blue-500/10 text-blue-500 hover:bg-blue-500/20",
+					: chat
+						? "border-violet-500/40 bg-violet-500/10 text-violet-400 hover:bg-violet-500/20"
+						: "border-blue-500/40 bg-blue-500/10 text-blue-500 hover:bg-blue-500/20",
 			)}
 		>
 			<Icon className="size-3.5" aria-hidden />
-			{practice ? "Practice" : "Teaching"}
+			{label}
 		</button>
 	);
 }

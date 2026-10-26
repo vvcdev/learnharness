@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { finishDictation, isDictationActive, useDictationTarget } from "@/components/dictation";
 import { useVoiceNotes, voiceText, VoiceNotesBox } from "@/components/voice-notes";
 import { useEnterSubmits } from "@/components/enter-submits";
-import { ImageAttachButton, ImageDraftStrip, imageDropHandlers, useImageDraft } from "@/components/learner-images";
+import { ImageAttachButton, ImageDraftStrip, imageDropHandlers, useImageDraft, useImagePasteTarget } from "@/components/learner-images";
 import { cn } from "@/lib/utils";
 import { repairMathForDisplay, type ImageRef } from "@/src/core";
 
@@ -69,6 +69,7 @@ export function PracticeDock({ problemCallId, input, expanded, onExpand, onSubmi
 	useDictationTarget(voice.add, true);
 	/* Images of the work (owner 2026-10-26): button, paste, drop. */
 	const images = useImageDraft();
+	useImagePasteTarget(images);
 	const restoreImages = images.restore;
 	useEffect(() => {
 		if (!restore) return;

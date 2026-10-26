@@ -24,7 +24,8 @@ export async function POST(req: Request) {
 	const title = typeof body.title === "string" ? body.title : "";
 	// Practice sessions (owner, 2026-10-04): kind "practice" marks the
 	// record — the practice agent + its tools from turn 1, no extraction.
-	const kind = body.kind === "practice" ? ("practice" as const) : undefined;
+	// Chat sessions (owner 2026-10-26): plain Q&A — the chat agent.
+	const kind = body.kind === "practice" ? ("practice" as const) : body.kind === "chat" ? ("chat" as const) : undefined;
 	const chat = createChat(titleFromPrompt(title || "Untitled session"), kind);
 	// The practice format (owner 2026-10-26): picked at creation; open-ended
 	// stays absent (the default reads the same).

@@ -217,6 +217,44 @@ export function imageDropHandlers(draft: ImageDraft) {
 	};
 }
 
+/* PASTE FROM ANYWHERE (owner 2026-10-26): ⌘V with an image on the
+ * clipboard attaches it to the active surface even when focus is
+ * elsewhere (no field clicked). Surfaces register while active; the most
+ * recently registered wins (a dock mounting over the composer takes it,
+ * and hands it back on unmount). A surface's own onPaste claims first
+ * (preventDefault) and this listener stands down. */
+const pasteTargets: Array<{ add: (files: File[]) => void }> = [];
+let pasteListening = false;
+
+function onDocumentPaste(e: ClipboardEvent) {
+	if (e.defaultPrevented) return;
+	const target = pasteTargets.at(-1);
+	if (!target) return;
+	const picked = Array.from(e.clipboardData?.files ?? []).filter(isImageFile);
+	if (picked.length === 0) return;
+	e.preventDefault();
+	target.add(picked);
+}
+
+export function useImagePasteTarget(draft: ImageDraft | undefined, active = true) {
+	const addRef = useRef(draft?.add);
+	addRef.current = draft?.add;
+	const present = Boolean(draft);
+	useEffect(() => {
+		if (!active || !present) return;
+		const entry = { add: (files: File[]) => void addRef.current?.(files) };
+		pasteTargets.push(entry);
+		if (!pasteListening) {
+			document.addEventListener("paste", onDocumentPaste);
+			pasteListening = true;
+		}
+		return () => {
+			const i = pasteTargets.indexOf(entry);
+			if (i !== -1) pasteTargets.splice(i, 1);
+		};
+	}, [active, present]);
+}
+
 /** The image button + hidden picker (practice dock, quiz thinking). */
 export function ImageAttachButton({ draft, className }: { draft: ImageDraft; className?: string }) {
 	const inputRef = useRef<HTMLInputElement>(null);

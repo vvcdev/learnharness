@@ -5,7 +5,7 @@ import { ArrowDownIcon, ChevronRightIcon, PlayIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { finishDictation, isDictationActive, useDictationTarget } from "@/components/dictation";
 import { useVoiceNotes, voiceText, VoiceNotesBox } from "@/components/voice-notes";
-import { ImageAttachButton, ImageDraftStrip, imageDropHandlers, useImageDraft } from "@/components/learner-images";
+import { ImageAttachButton, ImageDraftStrip, imageDropHandlers, useImageDraft, useImagePasteTarget } from "@/components/learner-images";
 import { useEnterSubmits } from "@/components/enter-submits";
 import { MessageResponse } from "@/components/ai-elements/message";
 import { cn } from "@/lib/utils";
@@ -356,6 +356,8 @@ export function QuestionDockForm({
 	const voice = useVoiceNotes();
 	/** Images of the work (owner 2026-10-26): ride the answer's thinking. */
 	const images = useImageDraft();
+	// ⌘V from anywhere lands here while this question is the visible one.
+	useImagePasteTarget(images, active);
 	// Confidence (owner, 2026-10-01): an index into CONFIDENCE_STOPS,
 	// resting at 50 — a real coin flip by definition, untouched or
 	// deliberate (the same number, the same meaning). The dock unmounts

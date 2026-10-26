@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { CornerDownLeftIcon, DumbbellIcon } from "lucide-react";
+import { CornerDownLeftIcon, DumbbellIcon, MessageCircleIcon } from "lucide-react";
 import { GraphView } from "@/components/graph-view";
 import { MinimalHome } from "@/components/minimal-home";
 import { SetupDialog } from "@/components/setup-dialog";
@@ -105,7 +105,7 @@ export function Home({
 	 *  may carry proposition picks from the chain table (the chip above
 	 *  the composer opens the picker; the picks seed the opening prompt).
 	 *  Not enforcing any input format — the picks are a convenience. */
-	const [mode, setMode] = useState<"teach" | "practice">("teach");
+	const [mode, setMode] = useState<"teach" | "practice" | "chat">("teach");
 	// The practice format (owner 2026-10-26): open-ended by default.
 	const [practice, setPractice] = useState<PracticeSettings>(DEFAULT_PRACTICE_SETTINGS);
 	const [practiceProps, setPracticeProps] = useState<{ id: string; name: string; statement: string }[]>([]);
@@ -160,7 +160,7 @@ export function Home({
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({
 					title: opening || spoken,
-					...(mode === "practice" ? { kind: "practice", practice } : {}),
+					...(mode === "practice" ? { kind: "practice", practice } : mode === "chat" ? { kind: "chat" } : {}),
 					...(practiceProps.length > 0 ? { graphContext: { propositions: practiceProps } } : {}),
 				}),
 			});
@@ -307,7 +307,9 @@ export function Home({
 												void start();
 											}
 										}}
-										placeholder={mode === "practice" ? "What do you want to practice?" : "What do you want to learn?"}
+										placeholder={
+											mode === "practice" ? "What do you want to practice?" : mode === "chat" ? "Ask anything…" : "What do you want to learn?"
+										}
 										autoFocus
 										rows={1}
 										className="field-sizing-content lh-input max-h-48 min-h-10 flex-1 resize-none bg-transparent px-1 py-2.5 outline-none placeholder:text-muted-foreground"
@@ -334,7 +336,7 @@ export function Home({
 						leadingSlot={
 							<div className="flex flex-wrap items-center gap-1.5">
 								<div className="flex items-center gap-0.5 rounded-md border border-border/60 bg-background p-0.5" data-testid="home-mode-switch">
-									{(["teach", "practice"] as const).map((m) => (
+									{(["teach", "practice", "chat"] as const).map((m) => (
 										<button
 											key={m}
 											type="button"
@@ -348,7 +350,8 @@ export function Home({
 											}
 										>
 											{m === "practice" ? <DumbbellIcon aria-hidden="true" className="size-3" /> : null}
-											{m === "teach" ? "Teach" : "Practice"}
+											{m === "chat" ? <MessageCircleIcon aria-hidden="true" className="size-3" /> : null}
+											{m === "teach" ? "Teach" : m === "chat" ? "Chat" : "Practice"}
 										</button>
 									))}
 								</div>

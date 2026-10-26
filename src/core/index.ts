@@ -44,6 +44,8 @@ export * from "./native-messages.ts";
 export * from "./images.ts";
 // Stop → Edit / Regenerate (owner 2026-10-26).
 export * from "./retry.ts";
+// Desmos graphs (owner 2026-10-26).
+export * from "./desmos.ts";
 export * from "./compaction.ts";
 export * from "./input-events.ts";
 // Wave D (owner-approved 2026-09-26): the client view model — the grouping

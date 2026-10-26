@@ -6,7 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { MenuShell } from "@/components/menu-shell";
 import { DeleteSessionDialog } from "@/components/delete-session-dialog";
 import type { ChatDeleteMode } from "@/src/core";
-import { DumbbellIcon, FolderIcon, PanelLeftCloseIcon, PanelLeftOpenIcon, PlusIcon, SearchIcon, SettingsIcon } from "lucide-react";
+import { DumbbellIcon, FolderIcon, MessageCircleIcon, PanelLeftCloseIcon, PanelLeftOpenIcon, PlusIcon, SearchIcon, SettingsIcon } from "lucide-react";
 import { ActivitySection } from "@/components/activity-dock";
 import { CoverageMenuBlock } from "@/components/extraction-coverage";
 import { LhMark } from "@/components/lh-mark";
@@ -320,6 +320,9 @@ export function SessionRow({
 			{(chat.kind ?? "teach") === "practice" && (
 				<DumbbellIcon className="size-3.5 shrink-0 text-muted-foreground/70" aria-label="Practice session" />
 			)}
+			{chat.kind === "chat" && (
+				<MessageCircleIcon className="size-3.5 shrink-0 text-muted-foreground/70" aria-label="Chat session" />
+			)}
 		</button>
 	);
 }
@@ -377,7 +380,7 @@ export function RenameRow({ chat, onCommit, onCancel }: { chat: ChatListItem; on
 /** The three-way kind filter (practice sessions, owner 2026-10-04):
  *  Teaching / All / Practice — a client-side filter over the same
  *  snapshot, persisted in localStorage, defaulting to All. */
-export type SessionKindFilter = "teach" | "all" | "practice";
+export type SessionKindFilter = "teach" | "all" | "practice" | "chat";
 const KIND_FILTER_KEY = "lh:session-kind-filter";
 
 function SessionsSidebar() {
@@ -387,7 +390,7 @@ function SessionsSidebar() {
 	const [kindFilter, setKindFilter] = useState<SessionKindFilter>("all");
 	useEffect(() => {
 		const stored = window.localStorage.getItem(KIND_FILTER_KEY);
-		if (stored === "teach" || stored === "all" || stored === "practice") setKindFilter(stored);
+		if (stored === "teach" || stored === "all" || stored === "practice" || stored === "chat") setKindFilter(stored);
 	}, []);
 	const setFilter = useCallback((f: SessionKindFilter) => {
 		setKindFilter(f);
@@ -404,7 +407,7 @@ function SessionsSidebar() {
 	useEffect(() => {
 		const onShow = (e: Event) => {
 			const kind = (e as CustomEvent<SessionKind>).detail;
-			if (kind !== "teach" && kind !== "practice") return;
+			if (kind !== "teach" && kind !== "practice" && kind !== "chat") return;
 			setFilter(kind);
 			setQuery("");
 			if (!open) toggle();
@@ -732,6 +735,16 @@ function SessionsSidebar() {
 					</button>
 					<button
 						type="button"
+						data-testid="new-session-chat"
+						onClick={() => router.push("/chat/new?mode=chat")}
+						className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-xs uppercase tracking-wider text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+					>
+						<MessageCircleIcon className="size-3" />
+						Chat
+						<span className="sr-only">create a new chat session</span>
+					</button>
+					<button
+						type="button"
 						data-testid="projects-entry"
 						onClick={() => router.push("/projects")}
 						className={cn(
@@ -816,7 +829,7 @@ function SessionsSidebar() {
 				    hatch on the right, mirroring the create-buttons above.
 				    Persisted client-side. */}
 				<div className="mx-3 flex items-center gap-0.5 rounded-md border border-border/60 bg-background p-0.5" data-testid="session-kind-filter">
-					{(["teach", "practice", "all"] as const).map((f) => (
+					{(["teach", "practice", "chat", "all"] as const).map((f) => (
 						<button
 							key={f}
 							type="button"
@@ -829,7 +842,7 @@ function SessionsSidebar() {
 									: "text-muted-foreground hover:text-foreground",
 							)}
 						>
-							{f === "teach" ? "Teaching" : f === "all" ? "All" : "Practice"}
+							{f === "teach" ? "Teaching" : f === "all" ? "All" : f === "chat" ? "Chat" : "Practice"}
 						</button>
 					))}
 				</div>

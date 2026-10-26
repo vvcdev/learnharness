@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import { ArrowRightIcon, CornerDownLeftIcon, SquareIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { VoiceNotesBox, type VoiceNotes } from "@/components/voice-notes";
-import { ImageDraftStrip, imageDropHandlers, type ImageDraft } from "@/components/learner-images";
+import { ImageDraftStrip, imageDropHandlers, useImagePasteTarget, type ImageDraft } from "@/components/learner-images";
 
 /**
  * The chat composer — content row ONLY (the persistent rounded shell lives in
@@ -91,6 +91,7 @@ export function Composer({
 	 *  picked images here; paste and drop land here too. */
 	images?: ImageDraft;
 }) {
+	useImagePasteTarget(images);
 	const act = () => {
 		const action = enterAction({ busy, canSend, nextProblem });
 		if (action === "stop") onStop();
