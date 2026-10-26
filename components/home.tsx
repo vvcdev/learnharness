@@ -16,7 +16,8 @@ import { useFieldCycle } from "@/components/field-cycle";
 import { SidebarToggle } from "@/components/sidebar";
 import { StatsBar } from "@/components/stats-bar";
 import type { PracticeSettings, ProjectSummary, TurnUsage } from "@/src/core";
-import { DEFAULT_PRACTICE_SETTINGS } from "@/src/core";
+import { DEFAULT_PRACTICE_SETTINGS, kbdEventForAction } from "@/src/core";
+import { Hint } from "@/components/ui/hint";
 import { PracticeFormatPicker } from "@/components/practice-format";
 
 /**
@@ -105,7 +106,22 @@ export function Home({
 	 *  may carry proposition picks from the chain table (the chip above
 	 *  the composer opens the picker; the picks seed the opening prompt).
 	 *  Not enforcing any input format — the picks are a convenience. */
-	const [mode, setMode] = useState<"teach" | "practice" | "chat">("teach");
+	// Chat is the default (owner 2026-10-26); ⌘1/⌘2/⌘3 switch.
+	const [mode, setMode] = useState<"teach" | "practice" | "chat">("chat");
+	useEffect(() => {
+		const pairs = [
+			["home-mode-chat", "chat"],
+			["home-mode-practice", "practice"],
+			["home-mode-teach", "teach"],
+		] as const;
+		const offs = pairs.map(([action, m]) => {
+			const event = kbdEventForAction(action);
+			const on = () => setMode(m);
+			window.addEventListener(event, on);
+			return () => window.removeEventListener(event, on);
+		});
+		return () => offs.forEach((off) => off());
+	}, []);
 	// The practice format (owner 2026-10-26): open-ended by default.
 	const [practice, setPractice] = useState<PracticeSettings>(DEFAULT_PRACTICE_SETTINGS);
 	const [practiceProps, setPracticeProps] = useState<{ id: string; name: string; statement: string }[]>([]);
@@ -336,9 +352,9 @@ export function Home({
 						leadingSlot={
 							<div className="flex flex-wrap items-center gap-1.5">
 								<div className="flex items-center gap-0.5 rounded-md border border-border/60 bg-background p-0.5" data-testid="home-mode-switch">
-									{(["teach", "practice", "chat"] as const).map((m) => (
+									{(["chat", "practice", "teach"] as const).map((m, i) => (
+										<Hint key={m} label={m === "teach" ? "Teach" : m === "chat" ? "Chat" : "Practice"} action={(["home-mode-chat", "home-mode-practice", "home-mode-teach"] as const)[i]}>
 										<button
-											key={m}
 											type="button"
 											data-testid={`home-mode-${m}`}
 											onClick={() => setMode(m)}
@@ -353,6 +369,7 @@ export function Home({
 											{m === "chat" ? <MessageCircleIcon aria-hidden="true" className="size-3" /> : null}
 											{m === "teach" ? "Teach" : m === "chat" ? "Chat" : "Practice"}
 										</button>
+										</Hint>
 									))}
 								</div>
 								<ProjectPackControl onActiveChange={onActiveProject} />

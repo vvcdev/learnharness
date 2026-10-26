@@ -36,7 +36,10 @@ export type KeyAction =
 	| "question-pick-row"
 	| "question-submit"
 	| "open-settings"
-	| "toggle-user-thinking";
+	| "toggle-user-thinking"
+	| "home-mode-chat"
+	| "home-mode-practice"
+	| "home-mode-teach";
 
 /** Where the cheat sheet groups an action (display only — dispatch is
  *  global; a seam that isn't mounted simply no-ops). */
@@ -67,6 +70,10 @@ export const KEYBOARD_ACTIONS: readonly KeyActionDef[] = [
 	// walked) — see sidebar.tsx's search input.)
 	{ id: "jump-graph", label: "Graph view", scope: "global", binding: "mod+g" },
 	{ id: "new-session", label: "New session", scope: "global", binding: "mod+n" },
+	// The home switch (owner 2026-10-26): Chat | Practice | Teach, in order.
+	{ id: "home-mode-chat", label: "Home · Chat mode", scope: "graph", binding: "mod+1" },
+	{ id: "home-mode-practice", label: "Home · Practice mode", scope: "graph", binding: "mod+2" },
+	{ id: "home-mode-teach", label: "Home · Teach mode", scope: "graph", binding: "mod+3" },
 	{ id: "rename-session", label: "Rename session", scope: "chat", binding: "f2" },
 	{ id: "toggle-user-thinking", label: "Toggle all your thinking", scope: "chat", binding: "mod+t" },
 	// Mod+F is surface-scoped: graph node search and session text Find share
