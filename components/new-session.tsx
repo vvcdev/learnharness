@@ -382,7 +382,10 @@ export function NewSession({ initialConfigured, mode = "teach" }: { initialConfi
 				}
 			})
 			.catch(() => setBusy(false));
-	}, [busy, router, configured, zeroKeys, strongKeyless, voiceRef, clearVoice]);
+		// `mode` MUST be a dep (owner bug, 2026-10-25): /chat/new?mode=practice →
+		// /chat/new is a same-route navigation — the page re-renders with the
+		// new mode but a stale `send` created the session with the OLD kind.
+	}, [busy, router, configured, zeroKeys, strongKeyless, voiceRef, clearVoice, mode]);
 
 	return (
 		<>

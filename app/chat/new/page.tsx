@@ -23,6 +23,9 @@ export default async function NewSessionPage({
 	const { mode } = await searchParams;
 	return (
 		<NewSession
+			// Keyed by mode: switching +Teaching ↔ +Practice remounts the draft
+			// so no state (or closure) from the other kind survives.
+			key={mode === "practice" ? "practice" : "teach"}
 			initialConfigured={slotsConfigured(readSettingsRecord()?.models)}
 			mode={mode === "practice" ? "practice" : "teach"}
 		/>

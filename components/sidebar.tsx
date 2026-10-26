@@ -22,6 +22,7 @@ import { useServerEvent, useServerResync } from "@/components/server-events";
 import type { ChatListItem } from "@/src/core";
 import { kbdEventForAction } from "@/src/core";
 import { notifySettingsSaved } from "@/components/settings-signal";
+import { SHOW_SESSION_KIND_EVENT, type SessionKind } from "@/components/session-kind-chip";
 
 /**
  * Toggleable sidebar — NOT a modal drawer: no backdrop, no focus theft. It
@@ -296,6 +297,7 @@ export function SessionRow({
 			onClick={onOpen}
 			onContextMenu={onContextMenu}
 			data-testid={kbdSelected ? "session-row-kbd" : "session-row"}
+			data-active={active ? "true" : undefined}
 			className={cn(
 				"relative mb-0.5 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left transition-colors hover:bg-accent",
 				active && "bg-accent",
@@ -395,6 +397,23 @@ function SessionsSidebar() {
 	const router = useRouter();
 	const { open: openSettings } = useSettingsDialog();
 
+	/* The category chip's click (owner, 2026-10-25): open the sidebar on
+	 * that section — filter switched, the current session's row scrolled
+	 * into view once the filtered list renders. */
+	const [revealActive, setRevealActive] = useState(0);
+	useEffect(() => {
+		const onShow = (e: Event) => {
+			const kind = (e as CustomEvent<SessionKind>).detail;
+			if (kind !== "teach" && kind !== "practice") return;
+			setFilter(kind);
+			setQuery("");
+			if (!open) toggle();
+			setRevealActive((n) => n + 1);
+		};
+		window.addEventListener(SHOW_SESSION_KIND_EVENT, onShow);
+		return () => window.removeEventListener(SHOW_SESSION_KIND_EVENT, onShow);
+	}, [open, toggle, setFilter]);
+
 	/* New session (owner, 2026-09-13): NO POST — the button opens the
 	   sessionless draft view; the session is created only when the first
 	   message is sent (and that message becomes its title). Search: a
@@ -420,6 +439,11 @@ function SessionsSidebar() {
 			.sort((a, b) => b.score - a.score)
 			.map((r) => r.c);
 	}, [chats, query, kindFilter]);
+
+	useEffect(() => {
+		if (revealActive === 0) return;
+		listRef.current?.querySelector('[data-active="true"]')?.scrollIntoView({ block: "nearest" });
+	}, [revealActive, shown]);
 
 	const refreshInFlightRef = useRef(false);
 	const refresh = useCallback(async () => {
