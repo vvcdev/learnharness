@@ -142,6 +142,39 @@ export function quizInputProblems(input: {
 	return problems;
 }
 
+/** THE LENGTH TELL (owner 2026-10-26): a correct option clearly longer
+ *  than every distractor can be picked without knowing the content. Run
+ *  at POSE time only (the tool executes) — never at display, so records
+ *  posed before the rule still render. Length is the visible label with
+ *  math delimiters and spacing collapsed; a margin of both 30% and 12
+ *  characters keeps short numeric options free. */
+export const LENGTH_TELL_RATIO = 1.3;
+export const LENGTH_TELL_MIN_CHARS = 12;
+
+export function optionLengthProblems(input: {
+	options: Array<{ label: string; value?: string }>;
+	correctAnswer: string | string[];
+}): string[] {
+	const { problems, keys } = optionProblems(input.options);
+	if (problems.length > 0 || keys.length !== input.options.length) return [];
+	const correct = new Set(coerceCorrectAnswer(input.correctAnswer, keys));
+	const size = (label: string) => label.replace(/\$+/g, "").replace(/\s+/g, " ").trim().length;
+	const right: number[] = [];
+	const wrong: number[] = [];
+	input.options.forEach((o, i) => (correct.has(keys[i]!) ? right : wrong).push(size(o.label)));
+	if (right.length === 0 || wrong.length === 0) return [];
+	const shortestRight = Math.min(...right);
+	const longestWrong = Math.max(...wrong);
+	if (shortestRight > longestWrong * LENGTH_TELL_RATIO && shortestRight - longestWrong >= LENGTH_TELL_MIN_CHARS) {
+		return [
+			`the correct option is clearly longer than every distractor (${shortestRight} vs at most ${longestWrong} characters) — ` +
+				"a learner could pick it by length alone. Make the options similar in length and detail: give the distractors " +
+				"equally specific, plausible wording, or tighten the correct one.",
+		];
+	}
+	return [];
+}
+
 // The SHARED quiz authoring fields — everything except `nodeId`. The probe
 // and teach agents use DIFFERENT tools under the same name (docs/probe-teach-
 // split.md §1): the prober's quiz has NO nodeId field at all (there is no

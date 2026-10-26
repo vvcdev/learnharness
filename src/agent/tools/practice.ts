@@ -30,6 +30,7 @@ import {
 	mcqBatchInputObject,
 	mcqItemObject,
 	parseOptionsIfString,
+	optionLengthProblems,
 	quizInputProblems,
 	type McqItemInput,
 } from "../../core/question-core.ts";
@@ -253,7 +254,7 @@ function prepareMcqItem(item: unknown, graphNodes?: PracticeToolContext["graphNo
 
 /** Every authoring problem of one item: the quiz contract + targets. */
 function mcqItemProblems(item: McqItemInput, graphNodes?: PracticeToolContext["graphNodes"], label = ""): string[] {
-	const problems = quizInputProblems(item).map((p) => `${label}${p}`);
+	const problems = [...quizInputProblems(item), ...optionLengthProblems(item)].map((p) => `${label}${p}`);
 	if (graphNodes && item.target && item.target.length > 0) {
 		const list = graphNodes();
 		const unknown = item.target.filter((t) => resolveTargetId(t, list) === null);

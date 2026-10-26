@@ -21,7 +21,7 @@ import {
 	PRACTICE_PROBLEM_TOOL,
 	type LhMessage,
 } from "../src/core/native-messages.ts";
-import { compactAnswerForModel, type QuestionAnswerData } from "../src/core/question-core.ts";
+import { compactAnswerForModel, optionLengthProblems, type QuestionAnswerData } from "../src/core/question-core.ts";
 
 const STAMPS = {
 	api: "faux",
@@ -101,46 +101,51 @@ describe("practice settings", () => {
 	it("default to open-ended; mix forces single; bad sizes fall back", () => {
 		assert.deepEqual(parsePracticeSettings(undefined), DEFAULT_PRACTICE_SETTINGS);
 		assert.equal(parsePracticeSettings({ format: "mix", pacing: "batch" }).pacing, "single");
-		assert.equal(parsePracticeSettings({ format: "mcq", pacing: "batch", batchSize: 7 }).batchSize, 10);
-		assert.deepEqual(parsePracticeSettings({ format: "mcq", pacing: "batch", batchSize: 20 }), {
+		assert.equal(parsePracticeSettings({ format: "mcq", pacing: "batch", batchSize: 7 }).batchSize, 7);
+		assert.equal(parsePracticeSettings({ format: "mcq", pacing: "batch", batchSize: 51 }).batchSize, 10);
+		assert.equal(parsePracticeSettings({ format: "mcq", pacing: "batch", batchSize: 1 }).batchSize, 10);
+		assert.equal(parsePracticeSettings({ format: "mcq", confidence: false }).confidence, false);
+		assert.equal(parsePracticeSettings({ format: "mcq" }).confidence, true);
+		assert.deepEqual(parsePracticeSettings({ format: "mcq", pacing: "batch", batchSize: 20, confidence: true }), {
 			format: "mcq",
 			pacing: "batch",
 			batchSize: 20,
+			confidence: true,
 		});
 	});
 });
 
 describe("the registry follows the format", () => {
 	it("open-ended is today's pair", () => assert.deepEqual(posing(), ["conclude", "problem"]));
-	it("MCQ single offers mcq", () => assert.deepEqual(posing({ format: "mcq", pacing: "single", batchSize: 10 }), ["conclude", "mcq"]));
+	it("MCQ single offers mcq", () => assert.deepEqual(posing({ format: "mcq", pacing: "single", batchSize: 10, confidence: true }), ["conclude", "mcq"]));
 	it("MCQ batch offers mcq_batch", () =>
-		assert.deepEqual(posing({ format: "mcq", pacing: "batch", batchSize: 5 }), ["conclude", "mcq_batch"]));
+		assert.deepEqual(posing({ format: "mcq", pacing: "batch", batchSize: 5, confidence: true }), ["conclude", "mcq_batch"]));
 	it("mix offers both forms", () =>
-		assert.deepEqual(posing({ format: "mix", pacing: "single", batchSize: 10 }), ["conclude", "mcq", "problem"]));
+		assert.deepEqual(posing({ format: "mix", pacing: "single", batchSize: 10, confidence: true }), ["conclude", "mcq", "problem"]));
 });
 
 describe("mcq / mcq_batch validation", () => {
 	it("a sound MCQ poses (terminate) and a broken key is returned", async () => {
-		const tools = practiceTools(ctx([], { format: "mcq", pacing: "single", batchSize: 10 }));
+		const tools = practiceTools(ctx([], { format: "mcq", pacing: "single", batchSize: 10, confidence: true }));
 		const ok = await tools.mcq!.execute("t1", ITEM as never);
 		assert.equal(ok.terminate, true);
 		const bad = await tools.mcq!.execute("t2", { ...ITEM, correctAnswer: "z" } as never);
 		assert.match(JSON.stringify(bad.content), /does not match any option/);
 	});
 	it("an MCQ cannot pose over an active open problem", async () => {
-		const tools = practiceTools(ctx(activeProblem(), { format: "mix", pacing: "single", batchSize: 10 }));
+		const tools = practiceTools(ctx(activeProblem(), { format: "mix", pacing: "single", batchSize: 10, confidence: true }));
 		const out = await tools.mcq!.execute("t1", ITEM as never);
 		assert.match(JSON.stringify(out.content), /conclude/);
 	});
 	it("a batch must be exactly the chosen size", async () => {
-		const tools = practiceTools(ctx([], { format: "mcq", pacing: "batch", batchSize: 5 }));
+		const tools = practiceTools(ctx([], { format: "mcq", pacing: "batch", batchSize: 5, confidence: true }));
 		const short = await tools.mcq_batch!.execute("t1", { questions: [ITEM, ITEM] } as never);
 		assert.match(JSON.stringify(short.content), /exactly 5/);
 		const full = await tools.mcq_batch!.execute("t2", { questions: Array.from({ length: 5 }, () => ITEM) } as never);
 		assert.equal(full.terminate, true);
 	});
 	it("heals string-encoded options per batch question", () => {
-		const tools = practiceTools(ctx([], { format: "mcq", pacing: "batch", batchSize: 5 }));
+		const tools = practiceTools(ctx([], { format: "mcq", pacing: "batch", batchSize: 5, confidence: true }));
 		const healed = tools.mcq_batch!.prepareArguments!({
 			questions: [{ ...ITEM, options: JSON.stringify(ITEM.options) }],
 		}) as { questions: Array<{ options: unknown }> };
@@ -187,5 +192,37 @@ describe("the batch result for the model", () => {
 		const compact = compactAnswerForModel(batch) as { score: string; batch: Array<{ question: number; correct: boolean }> };
 		assert.equal(compact.score, "1/2");
 		assert.deepEqual(compact.batch.map((b) => [b.question, b.correct]), [[1, true], [2, false]]);
+	});
+});
+
+describe("the length tell (owner 2026-10-26)", () => {
+	const opts = (right: string, ...wrong: string[]) => ({
+		options: [{ label: right, value: "a" }, ...wrong.map((w, i) => ({ label: w, value: `w${i}` }))],
+		correctAnswer: "a",
+	});
+	it("rejects a correct option clearly longer than every distractor", () => {
+		const problems = optionLengthProblems(
+			opts("The derivative of the outer function evaluated at the inner, times the inner's derivative", "Sum of derivatives", "Product of derivatives"),
+		);
+		assert.equal(problems.length, 1);
+		assert.match(problems[0]!, /by length/);
+	});
+	it("leaves evenly built options and short numeric ones alone", () => {
+		assert.deepEqual(optionLengthProblems(opts("$2x$", "$x$", "$x^2$")), []);
+		assert.deepEqual(
+			optionLengthProblems(opts("Outer derivative at the inner, times inner derivative", "Inner derivative at the outer, times outer derivative")),
+			[],
+		);
+	});
+	it("the mcq tool sends a length-tell question back", async () => {
+		const tools = practiceTools(ctx([], { format: "mcq", pacing: "single", batchSize: 10, confidence: true }));
+		const out = await tools.mcq!.execute("t", {
+			...ITEM,
+			options: [
+				{ label: "Four, because two plus two is defined as the successor of three", value: "a" },
+				{ label: "Five", value: "b" },
+			],
+		} as never);
+		assert.match(JSON.stringify(out.content), /by length/);
 	});
 });

@@ -5,6 +5,8 @@ import { ChevronDownIcon } from "lucide-react";
 import { usePopoverDismiss } from "@/components/popover-dismiss";
 import { cn } from "@/lib/utils";
 import {
+	MAX_PRACTICE_BATCH_SIZE,
+	MIN_PRACTICE_BATCH_SIZE,
 	PRACTICE_BATCH_SIZES,
 	parsePracticeSettings,
 	type PracticeFormat,
@@ -99,14 +101,65 @@ export function PracticeFormatPicker({
 				/>
 			)}
 			{value.format === "mcq" && value.pacing === "batch" && (
-				<Segmented
-					testid="practice-batch-size"
-					options={PRACTICE_BATCH_SIZES.map((n) => ({ id: n, label: String(n) }))}
-					value={value.batchSize}
-					onChange={(batchSize) => set({ batchSize })}
-				/>
+				<div className="flex items-center gap-1">
+					<Segmented
+						testid="practice-batch-size"
+						options={PRACTICE_BATCH_SIZES.map((n) => ({ id: n, label: String(n) }))}
+						value={value.batchSize}
+						onChange={(batchSize) => set({ batchSize })}
+					/>
+					<CustomBatchSize value={value.batchSize} onChange={(batchSize) => set({ batchSize })} />
+				</div>
+			)}
+			{(value.format === "mcq" || value.format === "mix") && (
+				<div className="flex items-center gap-1">
+					<span className="font-ui text-[11px] uppercase tracking-wider text-muted-foreground">Confidence</span>
+					<Segmented
+						testid="practice-confidence"
+						options={[
+							{ id: "on", label: "On" },
+							{ id: "off", label: "Off" },
+						]}
+						value={value.confidence ? "on" : "off"}
+						onChange={(v) => set({ confidence: v === "on" })}
+					/>
+				</div>
 			)}
 		</div>
+	);
+}
+
+/** A custom batch size (owner 2026-10-26): any whole number in range.
+ *  Shows the size when it isn't one of the quick picks; commits on a
+ *  valid number, reverts on blur otherwise. */
+function CustomBatchSize({ value, onChange }: { value: number; onChange: (n: number) => void }) {
+	const quick = (PRACTICE_BATCH_SIZES as readonly number[]).includes(value);
+	const [draft, setDraft] = useState<string | null>(null);
+	const shown = draft ?? (quick ? "" : String(value));
+	const commit = (raw: string) => {
+		const n = Number(raw);
+		if (Number.isInteger(n) && n >= MIN_PRACTICE_BATCH_SIZE && n <= MAX_PRACTICE_BATCH_SIZE) onChange(n);
+	};
+	return (
+		<input
+			type="number"
+			inputMode="numeric"
+			data-testid="practice-batch-custom"
+			aria-label={`Custom batch size (${MIN_PRACTICE_BATCH_SIZE}–${MAX_PRACTICE_BATCH_SIZE})`}
+			placeholder="Custom"
+			min={MIN_PRACTICE_BATCH_SIZE}
+			max={MAX_PRACTICE_BATCH_SIZE}
+			value={shown}
+			onChange={(e) => {
+				setDraft(e.target.value);
+				commit(e.target.value);
+			}}
+			onBlur={() => setDraft(null)}
+			className={cn(
+				"h-6 w-16 rounded-md border bg-background px-1.5 text-center text-[11px] uppercase tracking-wider outline-none [appearance:textfield] placeholder:text-muted-foreground focus:border-primary/50 [&::-webkit-inner-spin-button]:appearance-none",
+				quick ? "border-border/60 text-muted-foreground" : "border-primary/50 bg-accent text-foreground",
+			)}
+		/>
 	);
 }
 

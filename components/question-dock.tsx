@@ -94,6 +94,9 @@ export interface QuestionDockProps {
 	 *  and say so in the hint row. The server registry is the real gate;
 	 *  this is the affordance. */
 	compactionRunning?: boolean;
+	/** The confidence slider (owner 2026-10-26): practice MCQs can turn it
+	 *  off per session; default on. */
+	confidence?: boolean;
 }
 
 /** The batch dock's hooks into one question's form (owner 2026-10-26):
@@ -107,6 +110,9 @@ export interface QuestionFormBatchSlot {
 	/** AUTO-SAVE (owner 2026-10-26): the question's live answer on every
 	 *  change — a pick is saved without a click; undefined = unanswered. */
 	onDraft: (answer: QuestionAnswerData | undefined) => void;
+	/** ←/→ walk the batch (owner 2026-10-26); ⇧←/⇧→ move confidence. */
+	onPrev: () => void;
+	onNext: () => void;
 }
 
 export function QuestionDock({
@@ -121,6 +127,7 @@ export function QuestionDock({
 	phase = "probe",
 	dictationClaim = true,
 	compactionRunning = false,
+	confidence = true,
 }: QuestionDockProps) {
 	// The probe-phase names (owner, 2026-10-09) canonicalize onto their
 	// teach twins for every dock concern — parse dispatch, labels, kinds:
@@ -175,6 +182,7 @@ export function QuestionDock({
 					onEscape={onEscape}
 					dictationClaim={dictationClaim}
 					compactionRunning={compactionRunning}
+					confidence={confidence}
 				/>
 			</div>
 		</>
@@ -271,8 +279,10 @@ export function QuestionDockForm({
 	dictationClaim = true,
 	compactionRunning = false,
 	batch,
+	confidence = true,
 }: Omit<QuestionDockProps, "expanded" | "onExpand" | "reveal"> & { batch?: QuestionFormBatchSlot }) {
 	const kind = toolQuestionKind(toolName);
+	const showConfidence = kind === "quiz" && confidence;
 
 	// Canonical QuestionData, built once per question. Quiz options are
 	// deterministically shuffled (seeded by toolCallId) so position never leaks
@@ -411,7 +421,7 @@ export function QuestionDockForm({
 			images: images.refs(),
 			// Always sent on quiz answers (owner: 50 must mean 50, never
 			// "untouched"); buildAnswer drops it on "I don't know".
-			confidence: kind === "quiz" ? CONFIDENCE_STOPS[confIdx] : undefined,
+			confidence: showConfidence ? CONFIDENCE_STOPS[confIdx] : undefined,
 		};
 		return buildAnswer(qd, req, toolName);
 	};
@@ -555,11 +565,19 @@ export function QuestionDockForm({
 				setKbdIdx(next);
 				if (t?.closest?.("[data-kbdrow]")) focusRow(next);
 			} else if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+				// In a batch (owner 2026-10-26) plain ←/→ walk the questions;
+				// confidence moves with ⇧←/⇧→ there.
+				if (batch && !e.shiftKey) {
+					e.preventDefault();
+					if (e.key === "ArrowLeft") batch.onPrev();
+					else batch.onNext();
+					return;
+				}
 				// Global confidence cycling (owner, UI round 2026-10-01): the
 				// SAME pattern as ↑/↓ over the rows — works wherever focus
 				// sits, no click-in, no focus ring. Dead on "I don't know"
 				// (the slider grays out and nothing is sent).
-				if (kind !== "quiz" || sel.dontKnow) return;
+				if (!showConfidence || sel.dontKnow) return;
 				e.preventDefault();
 				setConfIdx((i) =>
 					Math.min(
@@ -786,8 +804,8 @@ export function QuestionDockForm({
 				them). Keyboard: GLOBAL ←/→ (the ↑/↓ pattern; the ring is gone
 				app-wide). Clicking and dragging are native. "I don't know"
 				GRAYS it out — the layout holds, no value is sent, the IDK
-				signal stands alone. */}
-			{kind === "quiz" && (
+				signal stands alone. Practice MCQs may turn it off. */}
+			{showConfidence && (
 				<div className="border-t border-border/60 px-4 py-2.5">
 					<div className="flex items-center gap-3">
 						<span

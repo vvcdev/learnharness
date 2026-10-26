@@ -34,6 +34,7 @@ export function McqBatchDock({
 	onSubmit,
 	onEscape,
 	compactionRunning = false,
+	confidence = true,
 }: {
 	toolCallId: string;
 	input: unknown;
@@ -42,6 +43,8 @@ export function McqBatchDock({
 	onSubmit: (output: QuestionAnswerData) => void;
 	onEscape?: () => void;
 	compactionRunning?: boolean;
+	/** The confidence slider (per-session practice setting). */
+	confidence?: boolean;
 }) {
 	const questions = useMemo(() => parseBatchQuestions(input), [input]);
 	const [idx, setIdx] = useState(0);
@@ -170,6 +173,7 @@ export function McqBatchDock({
 						onSubmit={() => (i === total - 1 ? finish() : advance(i))}
 						onEscape={onEscape}
 						compactionRunning={compactionRunning}
+						confidence={confidence}
 						batch={{
 							label: `Question ${i + 1} of ${total}`,
 							// Picks save themselves; the button (and Enter) moves on —
@@ -177,6 +181,8 @@ export function McqBatchDock({
 							submitLabel: i === total - 1 ? "Finish batch" : "Next question",
 							enterEnabled: expanded && i === idx,
 							onDraft: drafts[i]!,
+							onPrev: () => setIdx(Math.max(0, i - 1)),
+							onNext: () => setIdx(Math.min(total - 1, i + 1)),
 						}}
 					/>
 				</div>

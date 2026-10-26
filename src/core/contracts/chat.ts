@@ -33,16 +33,21 @@ export type ChatKind = "teach" | "practice";
  *  batches (answer all, then reveal one by one); Mix is always single. */
 export type PracticeFormat = "open" | "mcq" | "mix";
 export type PracticePacing = "single" | "batch";
+/** The quick picks; any whole number in [MIN, MAX] is allowed (custom). */
 export const PRACTICE_BATCH_SIZES = [5, 10, 20] as const;
-export type PracticeBatchSize = (typeof PRACTICE_BATCH_SIZES)[number];
+export const MIN_PRACTICE_BATCH_SIZE = 2;
+export const MAX_PRACTICE_BATCH_SIZE = 50;
+export type PracticeBatchSize = number;
 
 export interface PracticeSettings {
 	format: PracticeFormat;
 	pacing: PracticePacing;
 	batchSize: PracticeBatchSize;
+	/** The MCQ confidence slider (owner 2026-10-26) — on unless turned off. */
+	confidence: boolean;
 }
 
-export const DEFAULT_PRACTICE_SETTINGS: PracticeSettings = { format: "open", pacing: "single", batchSize: 10 };
+export const DEFAULT_PRACTICE_SETTINGS: PracticeSettings = { format: "open", pacing: "single", batchSize: 10, confidence: true };
 
 /** Validate a practice-settings body; anything malformed falls back to
  *  the default field by field. Mix forces single pacing. */
@@ -50,10 +55,14 @@ export function parsePracticeSettings(value: unknown): PracticeSettings {
 	const v = (typeof value === "object" && value !== null ? value : {}) as Record<string, unknown>;
 	const format: PracticeFormat = v.format === "mcq" || v.format === "mix" ? v.format : "open";
 	const pacing: PracticePacing = format === "mcq" && v.pacing === "batch" ? "batch" : "single";
-	const batchSize = (PRACTICE_BATCH_SIZES as readonly unknown[]).includes(v.batchSize)
-		? (v.batchSize as PracticeBatchSize)
-		: DEFAULT_PRACTICE_SETTINGS.batchSize;
-	return { format, pacing, batchSize };
+	const batchSize =
+		typeof v.batchSize === "number" &&
+		Number.isInteger(v.batchSize) &&
+		v.batchSize >= MIN_PRACTICE_BATCH_SIZE &&
+		v.batchSize <= MAX_PRACTICE_BATCH_SIZE
+			? v.batchSize
+			: DEFAULT_PRACTICE_SETTINGS.batchSize;
+	return { format, pacing, batchSize, confidence: v.confidence !== false };
 }
 
 /** A record's effective practice settings (absent = the default). */

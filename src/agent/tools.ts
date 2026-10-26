@@ -11,6 +11,7 @@ import {
 	probeQuizInputSchema,
 	quizInputObject,
 	quizInputProblems,
+	optionLengthProblems,
 } from "../core/question-core.ts";
 import { filterEnabledTools, type EnabledTools } from "../core/pending.ts";
 import type { JobRecord } from "../core/contracts.ts";
@@ -210,7 +211,7 @@ export const probeQuizTool: AgentTool<typeof probeQuizInputSchema> = {
 	prepareArguments: prepareQuestionArguments,
 	executionMode: "sequential",
 	execute: async (_toolCallId, input) => {
-		const problems = quizInputProblems(input);
+		const problems = [...quizInputProblems(input), ...optionLengthProblems(input)];
 		if (problems.length > 0) return invalidInputResult("probe", problems);
 		return questionResult();
 	},
@@ -381,7 +382,7 @@ export function teachQuizToolFor(ctx: Pick<PlanToolContext, "chatId" | "chatStor
 		prepareArguments: prepareQuestionArguments,
 		executionMode: "sequential",
 		execute: async (_toolCallId, input) => {
-			const problems = [...quizInputProblems(input)];
+			const problems = [...quizInputProblems(input), ...optionLengthProblems(input)];
 			const nodeIdProblemText = nodeIdProblem(ctx, input.nodeId);
 			if (nodeIdProblemText) problems.push(nodeIdProblemText);
 			if (problems.length > 0) return invalidInputResult("quiz", problems);

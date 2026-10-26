@@ -1752,6 +1752,7 @@ export function Chat({
 					compactionRunning={compacting}
 					onSubmitThinking={submitThinking}
 					practiceRestore={practiceRestore}
+					practiceConfidence={practice.confidence}
 					onModelChange={setSessionModel}
 					chatId={chatId}
 					plan={hasPlan ? <PlanMarginalia messages={messages} /> : undefined}
@@ -2032,6 +2033,7 @@ function DockOverlay({
 	queuedSteers,
 	onModelChange,
 	practiceRestore,
+	practiceConfidence = true,
 }: {
 	pending: ReturnType<typeof findPendingToolCall>;
 	/** Compaction running for this chat (round 14) — the docks' submit
@@ -2043,6 +2045,8 @@ function DockOverlay({
 	practice: { toolCallId: string; input: unknown } | null;
 	/** (commit, text) — the practice dock's two submit lanes. */
 	onSubmitThinking: (text: string, spoken?: string, images?: ImageRef[]) => void;
+	/** Practice MCQs' confidence slider (the session's format setting). */
+	practiceConfidence?: boolean;
 	/** Stop → Edit on a thinking submission: refills the practice dock. */
 	practiceRestore?: { key: number; text: string; images?: ImageRef[] };
 	/** The session model's provider:id (the stats bar's model control
@@ -2511,6 +2515,7 @@ function DockOverlay({
 									onSubmit={onSubmitAnswer}
 									onEscape={dictationCancel}
 									compactionRunning={compactionRunning}
+									confidence={practiceConfidence}
 								/>
 							) : pending ? (
 								<QuestionDock
@@ -2525,6 +2530,7 @@ function DockOverlay({
 									onEscape={dictationCancel}
 									dictationClaim={!revealPending}
 									compactionRunning={compactionRunning}
+									confidence={pending.tool === "mcq" ? practiceConfidence : true}
 								/>
 							) : practice ? (
 								<PracticeDock
