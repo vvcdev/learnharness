@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ChevronRightIcon } from "lucide-react";
 import { MessageResponse } from "@/components/ai-elements/message";
 import { Button } from "@/components/ui/button";
@@ -51,9 +51,12 @@ export interface PracticeDockProps {
 	 *  and say so in the hint row. The server registry is the real gate;
 	 *  this is the affordance. */
 	compactionRunning?: boolean;
+	/** Stop → Edit (owner 2026-10-26): refill the box with the stopped
+	 *  submission — a new key each time Edit is pressed. */
+	restore?: { key: number; text: string; images?: ImageRef[] };
 }
 
-export function PracticeDock({ problemCallId, input, expanded, onExpand, onSubmit, onEscape, compactionRunning = false }: PracticeDockProps) {
+export function PracticeDock({ problemCallId, input, expanded, onExpand, onSubmit, onEscape, compactionRunning = false, restore }: PracticeDockProps) {
 	const [thinking, setThinking] = useState("");
 	// Ref MIRRORS the field ("nothing gets lost", the question-dock
 	// discipline): a submit resuming after `await finishDictation()` reads
@@ -66,6 +69,14 @@ export function PracticeDock({ problemCallId, input, expanded, onExpand, onSubmi
 	useDictationTarget(voice.add, true);
 	/* Images of the work (owner 2026-10-26): button, paste, drop. */
 	const images = useImageDraft();
+	const restoreImages = images.restore;
+	useEffect(() => {
+		if (!restore) return;
+		thinkingRef.current = restore.text;
+		setThinking(restore.text);
+		restoreImages(restore.images ?? []);
+		// Only a new Edit press (key) refills — never a rerender.
+	}, [restore?.key]);
 
 	const submit = () => {
 		if (compactionRunning || images.uploading) return;

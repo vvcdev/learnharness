@@ -41,6 +41,7 @@ import {
 	pendingProblemDismissalOf,
 } from "./native-messages.ts";
 import { isPracticeMcqTool, QUESTION_TOOLS, toolQuestionKind } from "./pending.ts";
+import { retryBase, stoppedTurnOf } from "./retry.ts";
 
 /** One client-originated input event (the POST body's `input`). */
 export type ChatInput =
@@ -56,7 +57,12 @@ export type ChatInput =
 	 *  explicit go-ahead during the between-problems pause — the Next
 	 *  chip or Enter on an empty composer. Practice sessions only, and
 	 *  only with nothing active (mid-problem input rides the dock). */
-	| { type: "next" };
+	| { type: "next" }
+	/** Stop → Regenerate / Edit (owner 2026-10-26): throw the stopped
+	 *  output away and run the turn again — on the same input, or on an
+	 *  edited one that replaces it (retryAppends). */
+	| { type: "regenerate" }
+	| { type: "edit"; text: string; voice?: UserVoiceInput; images?: ImageRef[] };
 
 /** A wake-pipeline steer delivery — same turn composition, server-origin.
  *  Wave C (2026-09-26): the idle wake carries EVERY queued marker as its
@@ -242,6 +248,16 @@ export function parseChatInput(input: unknown): ChatInput {
 			}
 		case "next":
 			return { type: "next" };
+		case "regenerate":
+			return { type: "regenerate" };
+		case "edit": {
+			const voice = parseVoice(i.voice);
+			const images = parseImageRefs(i.images);
+			if (typeof i.text !== "string" || (i.text.trim().length === 0 && !voice && !images)) {
+				throw new ChatInputError("edit input requires non-empty text");
+			}
+			return { type: "edit", text: i.text, ...(voice ? { voice } : {}), ...(images ? { images } : {}) };
+		}
 		default:
 			throw new ChatInputError(`unknown input type: ${String(i.type)}`);
 	}
@@ -292,7 +308,33 @@ export function inputAppends(
 			}
 			return [...dismissalConclusion(record), newNextMessage()];
 		}
+		case "regenerate":
+		case "edit":
+			// The record itself changes first — see retryAppends.
+			return retryAppends(record, input).appends;
 	}
+}
+
+/** A retry's record + appends (pure): the stopped turn is cut away; an
+ *  edit appends its replacement input (a chat message, or a thinking
+ *  submission on the same problem). The honest 400 when nothing is
+ *  stopped or the input can't be edited. */
+export function retryAppends(
+	record: { messages: LhMessage[]; kind?: string },
+	input: { type: "regenerate" } | { type: "edit"; text: string; voice?: UserVoiceInput; images?: ImageRef[] },
+): { base: LhMessage[]; appends: LhMessage[] } {
+	const stopped = stoppedTurnOf(record.messages);
+	if (!stopped) throw new ChatInputError(`${input.type} input requires a stopped reply`);
+	const base = retryBase(record.messages, input.type);
+	if (!base) throw new ChatInputError("the stopped reply's input can't be edited");
+	if (input.type === "regenerate") return { base, appends: [] };
+	if (stopped.editable === "thinking") {
+		return {
+			base,
+			appends: [newThinkingMessage(stopped.problemCallId!, input.text, input.voice?.spoken, input.images)],
+		};
+	}
+	return { base, appends: [newUserMessage(input.text, input.voice, input.images)] };
 }
 
 /** The deferred conclude synthesis (owner ruling, 2026-10-04): a

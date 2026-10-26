@@ -249,6 +249,7 @@ export function Home({
 					    shows the pick HINT so the affordance is discoverable;
 					    teaching mode with nothing picked renders nothing. */}
 					<ComposerActions
+						format={mode === "practice" && <PracticeFormatPicker value={practice} onChange={setPractice} label />}
 						picker={(practiceProps.length > 0 || mode === "practice") && (
 							<NodePickerControl
 								count={practiceProps.length}
@@ -351,7 +352,6 @@ export function Home({
 										</button>
 									))}
 								</div>
-								{mode === "practice" && <PracticeFormatPicker value={practice} onChange={setPractice} />}
 								<ProjectPackControl onActiveChange={onActiveProject} />
 							</div>
 						}

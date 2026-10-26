@@ -24,6 +24,7 @@ import {
 	newThinkingMessage,
 	newUserMessage,
 	projectView,
+	retryAppends,
 	type ChatInput,
 	type LhMarkerMessage,
 	type LhMessage,
@@ -575,7 +576,21 @@ export class SessionModel {
 		// write-ahead will persist (inputAppends), with LOCAL ids so
 		// adoption can tell them from the record's absorbed copies.
 		const optimistic: LhMessage[] = [];
-		if (input.type === "text") optimistic.push({ ...newUserMessage(input.text, input.voice, input.images), id: localId() });
+		if (input.type === "regenerate" || input.type === "edit") {
+			// Stop → Regenerate / Edit (owner 2026-10-26): trim the stopped
+			// turn locally exactly as the server trims the record.
+			try {
+				const retry = retryAppends({ messages: [...this.base, ...this.tail] }, input);
+				this.mutate(() => {
+					this.base = retry.base;
+					this.tail = [];
+					this.streamingMessageId = null;
+				});
+				optimistic.push(...retry.appends.map((m) => ({ ...m, id: localId() })));
+			} catch {
+				/* the server's 400 surfaces below */
+			}
+		} else if (input.type === "text") optimistic.push({ ...newUserMessage(input.text, input.voice, input.images), id: localId() });
 		else if (input.type === "thinking") {
 			// The practice submissions (2026-10-04): the marker lands
 			// optimistically — the card renders from its details the

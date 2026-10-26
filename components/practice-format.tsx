@@ -74,14 +74,18 @@ export function PracticeFormatPicker({
 	value,
 	onChange,
 	className,
+	label = false,
 }: {
 	value: PracticeSettings;
 	onChange: (next: PracticeSettings) => void;
 	className?: string;
+	/** Lead with a "Format" label (the above-composer placement). */
+	label?: boolean;
 }) {
 	const set = (patch: Partial<PracticeSettings>) => onChange(parsePracticeSettings({ ...value, ...patch }));
 	return (
 		<div className={cn("flex flex-wrap items-center gap-1.5", className)} data-testid="practice-format-picker">
+			{label && <span className="font-ui text-[11px] uppercase tracking-wider text-muted-foreground">Format</span>}
 			<Segmented testid="practice-format" options={FORMATS} value={value.format} onChange={(format) => set({ format })} />
 			{value.format === "mcq" && (
 				<Segmented

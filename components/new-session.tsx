@@ -221,6 +221,11 @@ export function DraftShell({
 						<div className="bg-background pb-4">
 							<div className={DOCK}>
 								<ComposerActions
+									format={
+										mode === "practice" &&
+										practice &&
+										onPractice && <PracticeFormatPicker value={practice} onChange={onPractice} label />
+									}
 									picker={(picks.length > 0 || mode === "practice") && (
 										<NodePickerControl count={picks.length} onOpen={onOpenPicker} onClear={onClearPicks} />
 									)}
@@ -257,14 +262,7 @@ export function DraftShell({
 								</div>
 								<StatsBar
 									turns={[]}
-									leadingSlot={
-										<div className="flex flex-wrap items-center gap-1.5">
-											{mode === "practice" && practice && onPractice && (
-												<PracticeFormatPicker value={practice} onChange={onPractice} />
-											)}
-											<ProjectPackControl onActiveChange={onActiveProject} />
-										</div>
-									}
+									leadingSlot={<ProjectPackControl onActiveChange={onActiveProject} />}
 								/>
 							</div>
 						</div>

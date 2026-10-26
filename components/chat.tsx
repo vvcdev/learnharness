@@ -54,10 +54,11 @@ import { AbortTurnDialog, type AbortMode } from "@/components/abort-turn-dialog"
 import { ArrowRightIcon, WaypointsIcon } from "lucide-react";
 import { ImageInputContext, ImageThumbs, useImageDraft } from "@/components/learner-images";
 import { McqBatchCard, McqBatchDock } from "@/components/mcq-batch";
+import { StoppedBar } from "@/components/stopped-bar";
 import { nextItemLabel, PracticeFormatChip } from "@/components/practice-format";
 import { useModelCatalog } from "@/components/model-picker";
 import type { ImageRef, PlanBlockData, PracticeSettings, UserVoiceInput } from "@/src/core";
-import { DEFAULT_PRACTICE_SETTINGS } from "@/src/core";
+import { DEFAULT_PRACTICE_SETTINGS, stoppedTurnOf } from "@/src/core";
 import { QuestionDock } from "@/components/question-dock";
 import { SessionFind } from "@/components/session-find";
 import { SessionMessageNavigation } from "@/components/session-navigation";
@@ -475,6 +476,8 @@ export function Chat({
 
 	const localStream = status === "submitted" || status === "streaming";
 	const busy = localStream || turnInFlight;
+	// The stopped reply, if the record ends on one (nothing running).
+	const stopped = !busy && !pending ? stoppedTurnOf(nativeMessages) : null;
 	const busyRef = useRef(busy);
 	busyRef.current = busy;
 
@@ -506,10 +509,31 @@ export function Chat({
 	// read from the text by the agent, not declared here. Starts a turn;
 	// the dock stays mounted (the problem is still active until the agent
 	// concludes).
+	/* STOP → EDIT (owner 2026-10-26): while set, the next composer send
+	 * (text) or practice submission (thinking) REPLACES the stopped turn's
+	 * input instead of adding a new one. */
+	const [editing, setEditingState] = useState<null | "text" | "thinking">(null);
+	const editingRef = useRef<null | "text" | "thinking">(null);
+	const setEditing = useCallback((v: null | "text" | "thinking") => {
+		editingRef.current = v;
+		setEditingState(v);
+	}, []);
+	const [practiceRestore, setPracticeRestore] = useState<{ key: number; text: string; images?: ImageRef[] } | undefined>();
+
 	const submitThinking = useCallback(
 		(text: string, spoken?: string, images?: ImageRef[]) => {
 			const problem = activeProblemRef.current;
 			if (!problem) return;
+			if (editingRef.current === "thinking") {
+				setEditing(null);
+				void send({
+					type: "edit",
+					text,
+					...(spoken ? { voice: { spoken, seconds: 0 } } : {}),
+					...(images ? { images } : {}),
+				});
+				return;
+			}
 			void send({
 				type: "thinking",
 				problemCallId: problem.toolCallId,
@@ -518,7 +542,7 @@ export function Chat({
 				...(images ? { images } : {}),
 			});
 		},
-		[send],
+		[send, setEditing],
 	);
 
 	// Teach-phase check (W5, vision §2): a pending QUIZ that lands once a
@@ -1226,6 +1250,11 @@ export function Chat({
 		applyText("");
 		composerVoice.clear();
 		composerImages.clear();
+		if (!steering && editingRef.current === "text") {
+			setEditing(null);
+			void send({ type: "edit", text: textOut, ...(voice ? { voice } : {}), ...(images ? { images } : {}) });
+			return;
+		}
 		if (steering) void steer(textOut, voice, images);
 		else void send({ type: "text", text: textOut, ...(voice ? { voice } : {}), ...(images ? { images } : {}) });
 	};
@@ -1633,6 +1662,36 @@ export function Chat({
 								</Fragment>
 							))}
 
+							{/* STOP → EDIT / REGENERATE (owner 2026-10-26): under a
+							    stopped reply — throw it away and run the turn again. */}
+							{stopped && (
+								<StoppedBar
+									stopped={stopped}
+									editing={editing}
+									onRegenerate={() => {
+										setEditing(null);
+										void send({ type: "regenerate" });
+									}}
+									onEdit={() => {
+										if (stopped.editable === "text") {
+											applyText(stopped.text);
+											composerImages.restore(stopped.images ?? []);
+											setEditing("text");
+											requestAnimationFrame(() => composerInputRef.current?.focus());
+										} else if (stopped.editable === "thinking") {
+											setPracticeRestore({ key: Date.now(), text: stopped.text, images: stopped.images });
+											setEditing("thinking");
+										}
+									}}
+									onCancel={() => {
+										if (editing === "text") {
+											applyText("");
+											composerImages.clear();
+										}
+										setEditing(null);
+									}}
+								/>
+							)}
 							{/* THE placeholder, ACTION-gated (owner, optimistic round
 							    3, 2026-10-02): spinner + shimmered Thinking… from the
 							    instant of any action that produces tokens — send,
@@ -1692,6 +1751,7 @@ export function Chat({
 					practice={activeProblem}
 					compactionRunning={compacting}
 					onSubmitThinking={submitThinking}
+					practiceRestore={practiceRestore}
 					onModelChange={setSessionModel}
 					chatId={chatId}
 					plan={hasPlan ? <PlanMarginalia messages={messages} /> : undefined}
@@ -1971,6 +2031,7 @@ function DockOverlay({
 	setupCta,
 	queuedSteers,
 	onModelChange,
+	practiceRestore,
 }: {
 	pending: ReturnType<typeof findPendingToolCall>;
 	/** Compaction running for this chat (round 14) — the docks' submit
@@ -1982,6 +2043,8 @@ function DockOverlay({
 	practice: { toolCallId: string; input: unknown } | null;
 	/** (commit, text) — the practice dock's two submit lanes. */
 	onSubmitThinking: (text: string, spoken?: string, images?: ImageRef[]) => void;
+	/** Stop → Edit on a thinking submission: refills the practice dock. */
+	practiceRestore?: { key: number; text: string; images?: ImageRef[] };
 	/** The session model's provider:id (the stats bar's model control
 	 *  reports it) — the image affordances key on its capability. */
 	onModelChange?: (model: string | undefined) => void;
@@ -2473,6 +2536,7 @@ function DockOverlay({
 										void suppressFoldDuringReveal();
 									}}
 									onSubmit={onSubmitThinking}
+									restore={practiceRestore}
 									onEscape={dictationCancel}
 									compactionRunning={compactionRunning}
 								/>

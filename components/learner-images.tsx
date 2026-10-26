@@ -159,6 +159,17 @@ export function useImageDraft(input?: ImageInput) {
 		setError(null);
 	}, [set]);
 
+	/** Put already-stored images back in the draft (Edit after a stop). */
+	const restore = useCallback(
+		(images: readonly ImageRef[]) => {
+			if (!chatId) return;
+			for (const d of ref.current) URL.revokeObjectURL(d.preview);
+			set(images.map((r) => ({ key: crypto.randomUUID(), name: r.name ?? "image", preview: imageUrl(chatId, r), ref: r })));
+			setError(null);
+		},
+		[chatId, set],
+	);
+
 	/** The uploaded refs for the send (still-uploading images are skipped
 	 *  — `uploading` gates the send buttons so that never happens). */
 	const refs = useCallback((): ImageRef[] | undefined => {
@@ -174,6 +185,7 @@ export function useImageDraft(input?: ImageInput) {
 		add,
 		remove,
 		clear,
+		restore,
 		refs,
 		ref,
 	};

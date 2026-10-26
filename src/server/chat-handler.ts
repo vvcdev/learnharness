@@ -55,6 +55,7 @@ import { asAgentMessages } from "../core/native-messages.ts";
 import {
 	ChatInputError,
 	inputAppends,
+	retryAppends,
 	parseChatInput,
 	type TurnInput,
 } from "../core/input-events.ts";
@@ -268,10 +269,19 @@ export async function handleChatInput(
 	// follow-up queue and never builds an input event at all.
 	let appends;
 	try {
-		appends =
-			input.type === "steers"
-				? input.steers.filter((s) => !steerDelivered(record.messages, s.id))
-				: inputAppends(record, input);
+		if (input.type === "regenerate" || input.type === "edit") {
+			// Stop → Regenerate / Edit (owner 2026-10-26): the stopped turn is
+			// cut from the record; the write-ahead below persists the cut.
+			const retry = retryAppends(record, input);
+			record = { ...record, messages: retry.base };
+			appends = retry.appends;
+		} else {
+			const current = record;
+			appends =
+				input.type === "steers"
+					? input.steers.filter((s) => !steerDelivered(current.messages, s.id))
+					: inputAppends(current, input);
+		}
 	} catch (err) {
 		if (err instanceof ChatInputError) {
 			return Response.json({ error: err.message }, { status: 400 });

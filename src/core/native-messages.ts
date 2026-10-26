@@ -734,6 +734,9 @@ export function danglingQuestionOf(
 		const m = messages[mi]!;
 		if ((m as { role?: string }).role !== "assistant") continue;
 		const assistant = m as AssistantMessage & { id: string };
+		// A question cut off by Stop never reached the learner (owner
+		// 2026-10-26) — the view drops it too; Regenerate/Edit own it.
+		if (assistant.stopReason === "aborted") return null;
 		const answered = resultIdsFrom(messages.slice(mi + 1));
 		for (const block of assistant.content) {
 			if (block.type !== "toolCall") continue;

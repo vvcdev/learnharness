@@ -232,6 +232,13 @@ export function projectView(messages: readonly LhMessage[], live?: LiveTurnState
 					reasoning.push({ type: "reasoning", id: `${m.id}-r${reasoningN++}`, text: block.thinking, state: "done" });
 				} else if (block.type === "toolCall") {
 					const part = toolPartOf(block, live, streamingMessage);
+					// A call cut off by Stop (owner 2026-10-26) never reached the
+					// learner: no dock, no pending gate — the Stopped bar's
+					// Regenerate/Edit own what happens next. Silent like any abort.
+					if (!streamingMessage && assistant.stopReason === "aborted" && part.state === "input-available") {
+						part.state = "output-error";
+						part.errorText = "Operation aborted";
+					}
 					// The conclusion's reveal join (owner round, 2026-10-05): the
 					// hero of a conclude card is the modelSolution committed at POSE
 					// time — a record fold, enriched here so the card renders pure.
