@@ -211,6 +211,7 @@ export function Chat({
 	initialMessages,
 	initialPrompt,
 	initialVoice,
+	initialImages,
 	initiallyInFlight,
 	initiallyCompacting = false,
 	initialConfigured = false,
@@ -230,6 +231,8 @@ export function Chat({
 	initialPrompt?: string;
 	/** The opening's spoken part (voice-everywhere wave, owner 2026-10-25). */
 	initialVoice?: UserVoiceInput;
+	/** The opening's images (pasted before the session existed). */
+	initialImages?: ImageRef[];
 	/** A teacher turn is running server-side but attached to no client
 	 * (navigated away mid-turn, returned while in flight). */
 	initiallyInFlight?: boolean;
@@ -268,11 +271,18 @@ export function Chat({
 	// (initialPromptOwed — the pure gate, pinned in the test suite).
 	const sentInitial = useRef(false);
 	useEffect(() => {
-		if (!sentInitial.current && initialPromptOwed(initialMessages, initialPrompt || initialVoice?.spoken)) {
+		// An images-only opening still owes its first send.
+		const opening = initialPrompt || initialVoice?.spoken || (initialImages?.length ? "images" : undefined);
+		if (!sentInitial.current && initialPromptOwed(initialMessages, opening)) {
 			sentInitial.current = true;
-			void send({ type: "text", text: initialPrompt ?? "", ...(initialVoice ? { voice: initialVoice } : {}) });
+			void send({
+				type: "text",
+				text: initialPrompt ?? "",
+				...(initialVoice ? { voice: initialVoice } : {}),
+				...(initialImages ? { images: initialImages } : {}),
+			});
 		}
-	}, [initialPrompt, initialVoice, initialMessages, send]);
+	}, [initialPrompt, initialVoice, initialImages, initialMessages, send]);
 
 	// A turn running server-side, attached to no live view of ours (navigate
 	// away mid-turn, or a wake turn discovered mid-session): the reattach

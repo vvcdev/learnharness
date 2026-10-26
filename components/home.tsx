@@ -18,6 +18,8 @@ import { StatsBar } from "@/components/stats-bar";
 import type { PracticeSettings, ProjectSummary, TurnUsage } from "@/src/core";
 import { DEFAULT_PRACTICE_SETTINGS, kbdEventForAction } from "@/src/core";
 import { Hint } from "@/components/ui/hint";
+import { ImageDraftStrip, imageDropHandlers, useImageDraft, useImagePasteTarget } from "@/components/learner-images";
+import { useModelCatalog } from "@/components/model-picker";
 import { PracticeFormatPicker } from "@/components/practice-format";
 
 /**
@@ -106,6 +108,16 @@ export function Home({
 	 *  may carry proposition picks from the chain table (the chip above
 	 *  the composer opens the picker; the picks seed the opening prompt).
 	 *  Not enforcing any input format — the picks are a convenience. */
+	/* Images on the first message (owner 2026-10-26): no session exists
+	 * yet, so the draft holds them until the send creates one. The model
+	 * is the new-session default (the strong slot the stats bar binds). */
+	const [homeModel, setHomeModel] = useState<string | undefined>();
+	const { catalog: modelCatalog } = useModelCatalog();
+	const visionReady = Boolean(
+		homeModel && modelCatalog?.models.some((m) => `${m.provider}:${m.id}` === homeModel && m.input.includes("image")),
+	);
+	const images = useImageDraft({ chatId: null, enabled: visionReady, deferred: true });
+	useImagePasteTarget(images);
 	// Chat is the default (owner 2026-10-26); ⌘1/⌘2/⌘3 switch.
 	const [mode, setMode] = useState<"teach" | "practice" | "chat">("chat");
 	useEffect(() => {
@@ -145,8 +157,9 @@ export function Home({
 		const t = topicRef.current.trim();
 		const hasContext = sourcesRef.current.length > 0 || !!activeProjectRef.current;
 		const spoken = voiceText(voice.ref.current);
+		const hasImages = images.ref.current.length > 0;
 		const opening = t || (hasContext && !spoken ? "Teach me from these sources." : "");
-		if ((!opening && !spoken) || busy) return;
+		if ((!opening && !spoken && !hasImages) || busy) return;
 		// Unconfigured: the send INTERCEPTS into the setup flow (the draft
 		// stays in the textarea; the learner sends it after Save).
 		if (!configured) {
@@ -175,7 +188,7 @@ export function Home({
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({
-					title: opening || spoken,
+					title: opening || spoken || "Images",
 					...(mode === "practice" ? { kind: "practice", practice } : mode === "chat" ? { kind: "chat" } : {}),
 					...(practiceProps.length > 0 ? { graphContext: { propositions: practiceProps } } : {}),
 				}),
@@ -193,10 +206,23 @@ export function Home({
 				setBusy(false);
 				return;
 			}
+			// Pasted images (owner 2026-10-26): into the new session, then
+			// their refs ride the first message.
+			let imageQuery = "";
+			try {
+				const refs = await images.uploadTo(id);
+				if (refs) imageQuery = `&images=${encodeURIComponent(JSON.stringify(refs))}`;
+			} catch (error) {
+				await fetch(`/api/chats/${id}?mode=preserve-graph`, { method: "DELETE" }).catch(() => {});
+				setSourceError(error instanceof Error ? error.message : "Could not upload the images.");
+				setBusy(false);
+				return;
+			}
 			applySources([]);
+			images.clear();
 			const voiceQuery = voiceOpeningQuery(voice.ref.current);
 			voice.clear();
-			router.push(`/chat/${id}?prompt=${encodeURIComponent(prompt)}${voiceQuery}`);
+			router.push(`/chat/${id}?prompt=${encodeURIComponent(prompt)}${voiceQuery}${imageQuery}`);
 		} catch {
 			setBusy(false);
 		}
@@ -294,8 +320,11 @@ export function Home({
 							e.preventDefault();
 							void start();
 						}}
+						{...imageDropHandlers(images)}
 					>
+						<ImageDraftStrip draft={images} className="px-1.5 pb-1.5" />
 						<SourcePicker
+							onImages={(files) => void images.add(files)}
 							files={sources}
 							disabled={busy}
 							error={sourceError}
@@ -333,7 +362,15 @@ export function Home({
 					<button
 						type="submit"
 						aria-label="Start session"
-						disabled={(!topic.trim() && sources.length === 0 && !activeProject && !dictation.active && voice.value.notes.length === 0) || busy}
+						disabled={
+							(!topic.trim() &&
+								sources.length === 0 &&
+								!activeProject &&
+								!dictation.active &&
+								voice.value.notes.length === 0 &&
+								images.images.length === 0) ||
+							busy
+						}
 						className="flex size-10 shrink-0 items-center justify-center rounded-[10px] bg-primary text-primary-foreground transition-colors hover:opacity-90 disabled:opacity-40"
 					>
 										<CornerDownLeftIcon className="size-5" />
@@ -349,6 +386,7 @@ export function Home({
 					    pills write /api/settings/models). */}
 					<StatsBar
 						turns={[] as TurnUsage[]}
+						onModelChange={setHomeModel}
 						leadingSlot={
 							<div className="flex flex-wrap items-center gap-1.5">
 								<div className="flex items-center gap-0.5 rounded-md border border-border/60 bg-background p-0.5" data-testid="home-mode-switch">

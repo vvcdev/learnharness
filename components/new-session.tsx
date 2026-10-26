@@ -18,6 +18,8 @@ import { ProjectPackControl } from "@/components/project-pack";
 import type { ChatSettings, GraphSnapshot, PracticeSettings, ProjectSummary } from "@/src/core";
 import { DEFAULT_PRACTICE_SETTINGS } from "@/src/core";
 import { PracticeFormatPicker } from "@/components/practice-format";
+import { useImageDraft, type ImageDraft } from "@/components/learner-images";
+import { useModelCatalog } from "@/components/model-picker";
 
 /** The draft's pick set (owner round 10): the SAME shape the home pick
  *  bar lifts — resolved nodes as the learner SAW them at pick time. */
@@ -110,6 +112,8 @@ export function DraftShell({
 	onActiveProject,
 	practice,
 	onPractice,
+	images,
+	onModelChange,
 }: {
 	busy: boolean;
 	text: string;
@@ -122,6 +126,10 @@ export function DraftShell({
 	 *  created session carries kind:"practice" and the copy changes
 	 *  (the practice agent opens; no probing). */
 	mode?: "teach" | "practice" | "chat";
+	/** Images on the first message (owner 2026-10-26), held until the
+	 *  send creates the session; the model report gates them. */
+	images?: ImageDraft;
+	onModelChange?: (model: string | undefined) => void;
 	/** The practice format picker (owner 2026-10-26) — practice drafts. */
 	practice?: PracticeSettings;
 	onPractice?: (next: PracticeSettings) => void;
@@ -164,7 +172,13 @@ export function DraftShell({
 	// buffer — Enter must reach the finish-first send, not be gated out by
 	// an empty textarea. Nothing said → the send no-ops.
 	const canSend =
-		text.trim().length > 0 || dictation.active || sources.length > 0 || !!activeProject || (voice?.value.notes.length ?? 0) > 0;
+		(text.trim().length > 0 ||
+			dictation.active ||
+			sources.length > 0 ||
+			!!activeProject ||
+			(voice?.value.notes.length ?? 0) > 0 ||
+			(images?.images.length ?? 0) > 0) &&
+		!images?.uploading;
 	/* FINISH DICTATION FIRST (owner, 2026-10-01): stop the run, let the
 	 * last finals land through onChange, THEN call the parent's send —
 	 * which reads its REF mirror, so the post-await timing of React's
@@ -244,8 +258,10 @@ export function DraftShell({
 										onStop={() => {}}
 										canSend={canSend}
 										voice={voice ? { value: voice.value, onClear: voice.clear } : undefined}
+										images={images}
 										attachments={onSources ? (row) => (
 											<SourcePicker
+												onImages={images ? (files) => void images.add(files) : undefined}
 												files={sources}
 												disabled={busy}
 												error={sourceError}
@@ -268,6 +284,7 @@ export function DraftShell({
 								</div>
 								<StatsBar
 									turns={[]}
+									onModelChange={onModelChange}
 									leadingSlot={<ProjectPackControl onActiveChange={onActiveProject} />}
 								/>
 							</div>
@@ -301,6 +318,16 @@ export function NewSession({ initialConfigured, mode = "teach" }: { initialConfi
 		setText(v);
 	};
 	const [busy, setBusy] = useState(false);
+	/* Images on the first message (owner 2026-10-26): held until the send
+	 * creates the session; the draft's model (strong slot) gates them. */
+	const [draftModel, setDraftModel] = useState<string | undefined>();
+	const { catalog: modelCatalog } = useModelCatalog();
+	const visionReady = Boolean(
+		draftModel && modelCatalog?.models.some((m) => `${m.provider}:${m.id}` === draftModel && m.input.includes("image")),
+	);
+	const images = useImageDraft({ chatId: null, enabled: visionReady, deferred: true });
+	const imagesRef = useRef(images);
+	imagesRef.current = images;
 	// The practice format (owner 2026-10-26): open-ended by default.
 	const [practice, setPractice] = useState<PracticeSettings>(DEFAULT_PRACTICE_SETTINGS);
 	const practiceRef = useRef<PracticeSettings>(DEFAULT_PRACTICE_SETTINGS);
@@ -372,7 +399,8 @@ export function NewSession({ initialConfigured, mode = "teach" }: { initialConfi
 		const draft = textRef.current.trim();
 		const hasContext = sourcesRef.current.length > 0 || !!activeProjectRef.current;
 		const spoken = voiceText(voiceRef.current);
-		if ((!draft && !hasContext && !spoken) || busy) return;
+		const hasImages = imagesRef.current.ref.current.length > 0;
+		if ((!draft && !hasContext && !spoken && !hasImages) || busy) return;
 		if (!configured) {
 			setSetupOpen(true);
 			return;
@@ -387,13 +415,13 @@ export function NewSession({ initialConfigured, mode = "teach" }: { initialConfi
 			return;
 		}
 		setBusy(true);
-		const opening = draft || (spoken ? "" : "Teach me from these sources.");
+		const opening = draft || (spoken || !hasContext ? "" : "Teach me from these sources.");
 		void startDraftSession(
 			opening,
 			fetch,
 			mode === "practice" || mode === "chat" ? mode : undefined,
 			mode === "practice" ? picksRef.current : undefined,
-			opening || spoken,
+			opening || spoken || "Images",
 			mode === "practice" ? practiceRef.current : undefined,
 		)
 			.then(async (target) => {
@@ -404,10 +432,15 @@ export function NewSession({ initialConfigured, mode = "teach" }: { initialConfi
 				const id = target.slice("/chat/".length, target.indexOf("?"));
 				try {
 					const prompt = await openingWithSources(id, opening, sourcesRef.current);
+					// Pasted images (owner 2026-10-26): into the new session; their
+					// refs ride the first message.
+					const refs = await imagesRef.current.uploadTo(id);
+					const imageQuery = refs ? `&images=${encodeURIComponent(JSON.stringify(refs))}` : "";
 					applySources([]);
+					imagesRef.current.clear();
 					const voiceQuery = voiceOpeningQuery(voiceRef.current);
 					clearVoice();
-					router.push(`/chat/${id}?prompt=${encodeURIComponent(prompt)}${voiceQuery}`);
+					router.push(`/chat/${id}?prompt=${encodeURIComponent(prompt)}${voiceQuery}${imageQuery}`);
 				} catch (error) {
 					await fetch(`/api/chats/${id}?mode=preserve-graph`, { method: "DELETE" }).catch(() => {});
 					setSourceError(error instanceof Error ? error.message : "Could not save the sources.");
@@ -428,6 +461,8 @@ export function NewSession({ initialConfigured, mode = "teach" }: { initialConfi
 				onChange={applyText}
 				onSend={send}
 				voice={voice}
+				images={images}
+				onModelChange={setDraftModel}
 				mode={mode}
 				practice={practice}
 				onPractice={applyPractice}
