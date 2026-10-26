@@ -19,16 +19,31 @@
  *
  *   window.lh.onUpdateStatus(cb) / window.lh.installUpdate() — the
  *   upstream-notify channel (fork): "lh:update-status" pushes
- *   {status:"available", version} when a newer public release exists;
- *   installUpdate is a no-op (stock quit-and-install would wipe the fork).
- *   Browser builds: both absent, the banner never renders.
+ *   {status, version, revision} when a newer public release exists.
+ *   installUpdate never quit-and-installs (that would wipe the fork);
+ *   real updates are git merge + rebuild. getUpdateState / checkForUpdates
+ *   only observe / re-check — they never download a stock build.
+ *
+ *   window.lh.onOpenSettings(cb) — menu navigation, buffered until React
+ *   subscribes after a window is reopened. Browser builds have no bridge.
  *
  * Channel names are mirrored in electron/main.cjs — keep them in sync.
  */
 const { contextBridge, ipcRenderer } = require("electron");
 
+let openSettingsListener = null;
+let pendingOpenSettings = null;
+ipcRenderer.on("lh:open-settings", (_event, section) => {
+	if (openSettingsListener) openSettingsListener(section);
+	else pendingOpenSettings = section;
+});
+
 contextBridge.exposeInMainWorld("lh", {
 	platform: process.platform,
+	...(process.argv?.includes("--lh-web-subscriptions") ? {
+		subscriptionTransport: "web",
+		openSubscriptionBrowser: (action) => ipcRenderer.invoke("lh:subscriptions:web-browser", action),
+	} : {}),
 	chatgpt: {
 		status: () => ipcRenderer.invoke("lh:chatgpt:control", { op: "status" }),
 		login: (id) => ipcRenderer.invoke("lh:chatgpt:control", { op: "login", id }),
@@ -71,4 +86,17 @@ contextBridge.exposeInMainWorld("lh", {
 		return () => ipcRenderer.removeListener("lh:update-status", listener);
 	},
 	installUpdate: () => ipcRenderer.send("lh:update-install"),
+	getUpdateState: () => ipcRenderer.invoke("lh:update:get"),
+	checkForUpdates: () => ipcRenderer.invoke("lh:update:check"),
+	onOpenSettings: (cb) => {
+		openSettingsListener = cb;
+		if (pendingOpenSettings !== null) {
+			const section = pendingOpenSettings;
+			pendingOpenSettings = null;
+			cb(section);
+		}
+		return () => {
+			if (openSettingsListener === cb) openSettingsListener = null;
+		};
+	},
 });

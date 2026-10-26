@@ -30,6 +30,7 @@ const { attachChatGPTChild, trustedSender, chatGPTControl } = require("./chatgpt
 const { createSubscriptions, loadSubscriptionSDK } = require("./subscriptions.cjs");
 const { attachSubscriptionChild, subscriptionControl } = require("./subscription-ipc.cjs");
 const { desktopAPIHeaders } = require("./desktop-api.cjs");
+const { openWebSubscriptionBrowser } = require("./web-subscription-browser.cjs");
 const { randomBytes } = require("node:crypto");
 const { spawn } = require("node:child_process");
 const fs = require("node:fs");
@@ -314,6 +315,7 @@ function createWindow(url) {
 			contextIsolation: true,
 			sandbox: true,
 			nodeIntegration: false,
+			...(process.env.LH_DEV_URL ? { additionalArguments: ["--lh-web-subscriptions"] } : {}),
 			preload: path.join(__dirname, "preload.cjs"),
 		},
 		// Live-resize + first-paint flash (owner, 2026-09-17): during a resize
@@ -413,54 +415,61 @@ const ZOOM_LADDER = [0.75, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2];
  * Real code updates land via `git merge upstream/main` + a local rebuild.
  *
  * Hard rules:
- *  - DEV NEVER CHECKS: !app.isPackaged skips the updater entirely.
+ *  - DEV NEVER CHECKS: !app.isPackaged → status "disabled".
  *  - NEVER DOWNLOAD / NEVER INSTALL: autoDownload and autoInstallOnAppQuit
- *    stay false; lh:update-install is a no-op.
- *  - NOTIFY ONLY: update-available → banner {status:"available", version}.
- *  - THE CHECK CAN NEVER TAKE THE APP DOWN: failures are log lines.
+ *    stay false; lh:update-install explains merge-instead.
+ *  - NOTIFY ONLY: update-available reports status "downloaded" (UI language
+ *    for "upstream is out") without staging a zip.
+ *  - Settings autoUpdate only gates automatic CHECKS, never installs.
  *  - LH_UPDATE_FEED (env): test-only generic feed override. */
 const UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
 let autoUpdater = null; // electron-updater's, packaged builds only
+// Observational only: this snapshot NEVER gates a check. revision lets
+// late subscribers reject an older in-flight IPC snapshot.
+let updateState = { status: "idle", version: null, revision: 0 };
+let reopenWindow = null;
 
-function broadcastUpdateStatus(status) {
-	for (const win of BrowserWindow.getAllWindows()) {
-		try {
-			win.webContents.send("lh:update-status", status);
-		} catch {
-			/* window mid-teardown — the next push retries */
+function reportUpdateStatus(status, version = null) {
+	try {
+		// Keep a known-upstream notice sticky until a newer one arrives.
+		if (updateState.status === "downloaded" && status !== "downloaded") return;
+		updateState = { status, version: typeof version === "string" ? version : null, revision: updateState.revision + 1 };
+		for (const win of BrowserWindow.getAllWindows()) {
+			try {
+				win.webContents.send("lh:update-status", updateState);
+			} catch {
+				/* window mid-teardown — snapshot retrieval covers a later load */
+			}
 		}
+	} catch {
+		/* Status reporting must never interrupt the updater. */
+	}
+}
+
+/** Only an explicit false opts out; absent/corrupt settings keep checks ON. */
+function automaticUpdatesEnabled() {
+	try {
+		const settings = JSON.parse(fs.readFileSync(path.join(DATA_DIR(), "settings.json"), "utf8"));
+		return settings?.general?.autoUpdate !== false;
+	} catch {
+		return true;
 	}
 }
 
 function checkForUpdates({ manual = false } = {}) {
 	if (!autoUpdater) return;
+	if (!manual && !automaticUpdatesEnabled()) {
+		log("auto-update: automatic check skipped (turned off in Settings)");
+		return;
+	}
 	autoUpdater
 		.checkForUpdates()
 		.then((result) => {
-			const version = result?.updateInfo?.version ?? null;
-			const current = app.getVersion();
-			// Newer upstream → banner (also fired from update-available).
-			if (version && version !== current) {
-				broadcastUpdateStatus({ status: "available", version });
-			}
-			if (!manual) return;
-			if (!version || version === current) {
-				dialog.showMessageBox({
-					type: "info",
-					message: "No upstream release to merge.",
-					detail: `This fork is LearnHarness ${current}. Updates come from merging upstream, not from Restart.`,
-				});
-			} else {
-				dialog.showMessageBox({
-					type: "info",
-					message: `Upstream LearnHarness ${version} is out.`,
-					detail: "This app will not install it (that would wipe your fork). Merge upstream into the repo and rebuild when you're ready.",
-				});
-			}
+			if (!result) reportUpdateStatus("idle");
 		})
 		.catch((err) => {
 			log(`update check failed: ${err?.message ?? err}`);
-			if (manual) dialog.showMessageBox({ type: "warning", message: "Couldn't check for updates.", detail: String(err?.message ?? err) });
+			reportUpdateStatus("error");
 		});
 }
 
@@ -477,12 +486,14 @@ function installUpdateNow() {
 function setupAutoUpdater() {
 	if (!app.isPackaged) {
 		log("auto-update: dev build — updater disabled");
+		reportUpdateStatus("disabled");
 		return;
 	}
 	try {
 		autoUpdater = require("electron-updater").autoUpdater;
 	} catch (err) {
 		log(`auto-update: electron-updater unavailable (${err?.message ?? err}) — updates disabled`);
+		reportUpdateStatus("disabled");
 		return;
 	}
 	const feed = process.env.LH_UPDATE_FEED;
@@ -492,25 +503,50 @@ function setupAutoUpdater() {
 	}
 	autoUpdater.autoDownload = false;
 	autoUpdater.autoInstallOnAppQuit = false;
-	// Route every updater log line through the shell's own log (userData/
-	// logs/main.log) — feed failures must be diagnosable after the fact.
 	autoUpdater.logger = {
 		info: (m) => log(`updater: ${m}`),
 		warn: (m) => log(`updater warn: ${m}`),
-		debug: (m) => {}, // too chatty for the persistent log
+		debug: (m) => {},
 		error: (m) => log(`updater error: ${m}`),
 	};
+	autoUpdater.on("checking-for-update", () => reportUpdateStatus("checking"));
+	// Notify as "downloaded" so Settings/banner show a sticky notice — we
+	// never actually download or install the zip (autoDownload is false).
 	autoUpdater.on("update-available", (info) => {
 		log(`upstream available: ${info?.version} — notify only (no download)`);
-		broadcastUpdateStatus({ status: "available", version: info?.version ?? null });
+		reportUpdateStatus("downloaded", info?.version);
 	});
+	autoUpdater.on("update-not-available", () => reportUpdateStatus("up-to-date"));
 	autoUpdater.on("update-downloaded", (info) => {
-		// Should never fire with autoDownload false; if a prior build staged
-		// a zip, still refuse to treat it as installable.
 		log(`update download ignored: ${info?.version}`);
-		broadcastUpdateStatus({ status: "available", version: info?.version ?? null });
+		reportUpdateStatus("downloaded", info?.version);
 	});
-	autoUpdater.on("error", (err) => log(`updater error: ${err?.message ?? err}`));
+	autoUpdater.on("error", (err) => {
+		log(`updater error: ${err?.message ?? err}`);
+		reportUpdateStatus("error");
+	});
+}
+
+function checkForUpdatesFromMenu() {
+	try {
+		const win = BrowserWindow.getAllWindows()[0] ?? reopenWindow?.();
+		if (win) {
+			if (win.isMinimized()) win.restore();
+			win.focus();
+			const openSettings = () => {
+				try {
+					win.webContents.send("lh:open-settings", "general");
+				} catch {
+					/* window closed */
+				}
+			};
+			if (win.webContents.isLoadingMainFrame()) win.webContents.once("did-finish-load", openSettings);
+			else openSettings();
+		}
+	} catch {
+		/* menu must never crash the shell */
+	}
+	checkForUpdates({ manual: true });
 }
 
 function zoomStep(win, dir) {
@@ -538,7 +574,7 @@ function installMenu() {
 				{ role: "about" },
 				// Manual check (Wave C): answers via native dialog — no renderer
 				// round-trip. The 24h automatic checks stay silent.
-				{ label: "Check for Updates…", click: () => checkForUpdates({ manual: true }) },
+				{ label: "Check for Updates…", click: () => checkForUpdatesFromMenu() },
 				{ type: "separator" },
 				{ role: "hide" },
 				{ role: "hideOthers" },
@@ -652,14 +688,27 @@ async function main() {
 		return subscriptionControl(command, subscriptions);
 	});
 
+	// The dev shell has no browser tabs. Only a one-use action on its own
+	// Next server may be resolved here; never accept an arbitrary external URL.
+	ipcMain.handle("lh:subscriptions:web-browser", async (event, action) => {
+		if (!devUrl || !trustedAppWindows.has(BrowserWindow.fromWebContents(event.sender)) || !trustedSender(event, new URL(url).origin, BrowserWindow)) throw new Error("Untrusted development request.");
+		await openWebSubscriptionBrowser(action, new URL(url).origin, { openExternal: (target) => shell.openExternal(target) });
+	});
+
 	installMenu();
 
-	// Auto-update (Wave C): wire the updater before the window so the
-	// banner channel is live from first paint; the first check and the 24h
-	// interval fire after it below. setupAutoUpdater's contract: failures
-	// are log lines — this can never block boot.
+	// Upstream-notify (fork): wire before the window so the banner channel
+	// is live from first paint. Never downloads or installs stock builds.
 	setupAutoUpdater();
 	ipcMain.on("lh:update-install", () => installUpdateNow());
+	ipcMain.handle("lh:update:get", (event) => {
+		if (!trustedAppWindows.has(BrowserWindow.fromWebContents(event.sender)) || !trustedSender(event, new URL(url).origin, BrowserWindow)) throw new Error("Untrusted desktop request.");
+		return updateState;
+	});
+	ipcMain.handle("lh:update:check", (event) => {
+		if (!trustedAppWindows.has(BrowserWindow.fromWebContents(event.sender)) || !trustedSender(event, new URL(url).origin, BrowserWindow)) throw new Error("Untrusted desktop request.");
+		checkForUpdates({ manual: true });
+	});
 
 	// Sidebar-at-narrow-window (owner, 2026-09-17): the renderer auto-closes
 	// the sidebar below SIDEBAR_AUTOCLOSE (928px); opening it again at that
@@ -676,13 +725,17 @@ async function main() {
 		const target = SIDEBAR_AUTOCLOSE;
 		if (width < target) win.setBounds({ x, y, width: target, height });
 	});
+	reopenWindow = () => {
+		chatgpt?.resume();
+		subscriptions?.resume();
+		return createWindow(url);
+	};
 	app.on("activate", () => {
-		if (BrowserWindow.getAllWindows().length === 0) { chatgpt?.resume(); subscriptions?.resume(); createWindow(url); }
+		if (BrowserWindow.getAllWindows().length === 0) reopenWindow();
 	});
 	createWindow(url);
 	log(`window open: ${url}`);
-	// First upstream check AFTER the window exists (the notify banner
-	// needs a listener); never downloads. Dev builds no-op (no autoUpdater).
+	// Startup + 24h checks: notify only, never download. Dev builds no-op.
 	if (autoUpdater) {
 		checkForUpdates();
 		setInterval(() => checkForUpdates(), UPDATE_CHECK_INTERVAL_MS);

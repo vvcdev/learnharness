@@ -63,4 +63,5 @@ export {
 	applyProjectFilesToSession,
 	projectFilePath,
 } from "./projects.ts";
+export { subscriptionControlsResponse, subscriptionBrowserResponse } from "./web-subscription-http.ts";
 export { sessionCost } from "./pricing.ts";

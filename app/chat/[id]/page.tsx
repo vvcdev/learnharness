@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { Chat } from "@/components/chat";
 import { parseImageRefs, practiceSettingsOf, slotsConfigured } from "@/src/core";
+import { compactionInFlight, getChat, isTurnRunning, readSettingsRecord, turnFailure } from "@/src/server";
 
 function parseOpeningImages(raw: string | undefined) {
 	if (!raw) return undefined;
@@ -10,7 +11,6 @@ function parseOpeningImages(raw: string | undefined) {
 		return undefined;
 	}
 }
-import { compactionInFlight, getChat, isTurnRunning, readSettingsRecord } from "@/src/server";
 
 export const dynamic = "force-dynamic";
 
@@ -39,6 +39,7 @@ export default async function ChatPage({
 				// derived app-side (core/view.ts projectView; GET serves the same
 				// native messages).
 				initialMessages={chat.messages}
+			initialError={turnFailure(chat.id)}
 			initialConfigured={slotsConfigured(record?.models)}
 			initialPrompt={prompt}
 			// A voice opening (voice-everywhere wave, owner 2026-10-25): the

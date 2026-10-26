@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { AssistantMessage, Message, ToolResultMessage, Usage, Tool } from "@earendil-works/pi-ai";
 import { normalizeContext } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
+import { resolveSourcePath } from "../tools/fs-shared.ts";
 import { piEngineFor, type PiEngine, type ThinkingLevel } from "../models.ts";
 import { providerEventObserver, type ProviderEventObserver } from "../provider-events.ts";
 import type { PdfResult, PdfToolInput } from "../../core/contracts.ts";
@@ -171,7 +172,7 @@ export async function runPdfReaderAgent(
 ): Promise<PdfResult> {
 	const headless = opts.headless ?? getHeadless();
 	const maxIterations = opts.maxIterations ?? MAX_ITERATIONS;
-	const pdfPath = input.path;
+	const pdfPath = resolveSourcePath(input.path);
 	// A page-limited source (owner 2026-10-26): every tool below sees ONLY
 	// these pages — the rest of the file does not exist for this reader.
 	const allowed = readPdfPageLimit(pdfPath);
