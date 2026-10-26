@@ -46,7 +46,8 @@ export * from "./observability.ts";
 export * from "./model-catalog.ts";
 export { claudeCodeStatus } from "../agent/claude-code-auth.ts";
 export { saveLessonSources, removeSessionSources } from "./session-sources.ts";
-export { stageUploads, claimUploads, removeUploadBatch } from "./uploads.ts";
+export { stageUploads, claimUploads, removeUploadBatch, stagedUploadPath } from "./uploads.ts";
+export { sourceOutline, applySourceScope, writePdfPageLimit } from "./source-scope.ts";
 export { saveChatImages, readChatImage, chatImageMimeType } from "./chat-images.ts";
 export {
 	listProjects,

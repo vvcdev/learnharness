@@ -106,6 +106,14 @@ export async function pdfProbe(filePath: string): Promise<void> {
 }
 
 /** pdf_info: page count + per-page triage signals. ALWAYS run first. */
+/** Just the page count (the scope picker's outline — no per-page scan). */
+export async function pdfPageCount(filePath: string): Promise<number> {
+	const { doc, task } = await openDocument(filePath);
+	const count = doc.numPages;
+	await task.destroy();
+	return count;
+}
+
 export async function pdfInfo(filePath: string): Promise<PdfInfo> {
 	const pdfjs = await loadPdfjs(); // OPS constant for the operator-list scan
 	const { doc } = await openDocument(filePath);

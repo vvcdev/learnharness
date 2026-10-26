@@ -1,8 +1,10 @@
 "use client";
 
-import { useRef, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { PaperclipIcon, XIcon } from "lucide-react";
-import { appendProjectContext, LESSON_SOURCE_ACCEPT, lessonSourceError } from "@/src/core";
+import { appendProjectContext, LESSON_SOURCE_ACCEPT, lessonSourceError, scopeChipLabel, scopeKindFor, type SourceScope } from "@/src/core";
+import { SourceScopePicker } from "@/components/source-scope-picker";
+import { cn } from "@/lib/utils";
 import { isImageFile } from "@/components/learner-images";
 
 /** A picked file already copied into the app's uploads folder. */
@@ -11,6 +13,8 @@ export type AttachedSource = {
 	size: number;
 	batchId: string;
 	stored: string;
+	/** Limit to chosen pages / slides / sections (owner 2026-10-26). */
+	scope?: SourceScope;
 };
 
 export async function stagePickedFiles(
@@ -57,12 +61,13 @@ export async function uploadLessonSources(chatId: string, files: readonly Attach
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify({
-			claim: files.map((file) => ({ batchId: file.batchId, stored: file.stored })),
+			claim: files.map((file) => ({ batchId: file.batchId, stored: file.stored, ...(file.scope ? { scope: file.scope } : {}) })),
 		}),
 	});
-	const payload = (await response.json().catch(() => ({}))) as { paths?: string[]; error?: string };
+	const payload = (await response.json().catch(() => ({}))) as { paths?: string[]; notes?: (string | null)[]; error?: string };
 	if (!response.ok || !payload.paths) throw new Error(payload.error || "Could not save the sources.");
-	return payload.paths;
+	// A limited file's line carries its note (the agent reads the limit).
+	return payload.paths.map((p, i) => (payload.notes?.[i] ? `${p} — ${payload.notes[i]}` : p));
 }
 
 /** Apply the active (or named) project pack into the session, then attach extra files. */
@@ -116,14 +121,48 @@ function SourceChips({
 	onChange: (files: AttachedSource[]) => void;
 	error?: string | null;
 }) {
+	const [picking, setPicking] = useState<{ key: string; anchor: HTMLElement } | null>(null);
 	if (files.length === 0 && !error) return null;
 	return (
 		<div className="flex flex-col gap-1 px-1.5 pb-1">
 			{files.length > 0 && (
 				<div className="flex flex-wrap items-center gap-1.5">
-					{files.map((file) => (
-						<span key={`${file.batchId}:${file.stored}`} className="flex max-w-48 items-center gap-1 rounded-sm border border-border bg-background px-1.5 py-0.5 text-xs text-foreground">
-							<span className="truncate">{file.name}</span>
+					{files.map((file) => {
+						const key = `${file.batchId}:${file.stored}`;
+						const scopable = scopeKindFor(file.name) !== null;
+						return (
+						<span key={key} className="relative flex max-w-64 items-center gap-1 rounded-sm border border-border bg-background px-1.5 py-0.5 text-xs text-foreground">
+							{/* Click to limit pages / slides / sections (owner 2026-10-26). */}
+							<button
+								type="button"
+								data-testid="source-chip"
+								disabled={!scopable}
+								title={scopable ? "Limit to pages, slides, or sections" : undefined}
+								onClick={(e) => {
+									const anchor = e.currentTarget;
+									setPicking(picking?.key === key ? null : { key, anchor });
+								}}
+								className={cn("flex min-w-0 items-center gap-1", scopable && "cursor-pointer hover:text-primary")}
+							>
+								<span className="truncate">{file.name}</span>
+								{file.scope ? (
+									<span className="shrink-0 rounded-sm bg-accent px-1 text-[10px] text-muted-foreground">{scopeChipLabel(file.scope)}</span>
+								) : scopable ? (
+									<span className="shrink-0 text-[10px] text-muted-foreground">all</span>
+								) : null}
+							</button>
+							{picking?.key === key && (
+								<SourceScopePicker
+									batchId={file.batchId}
+									stored={file.stored}
+									scope={file.scope}
+									anchor={picking.anchor}
+									onChange={(scope) =>
+										onChange(files.map((f) => (f.batchId === file.batchId && f.stored === file.stored ? { ...f, scope } : f)))
+									}
+									onClose={() => setPicking(null)}
+								/>
+							)}
 							<button
 								type="button"
 								aria-label={`Remove ${file.name}`}
@@ -133,7 +172,8 @@ function SourceChips({
 								<XIcon className="size-3" />
 							</button>
 						</span>
-					))}
+						);
+					})}
 				</div>
 			)}
 			{error && <p role="alert" className="text-xs text-red-400">{error}</p>}

@@ -7,6 +7,8 @@ import { providerEventObserver, type ProviderEventObserver } from "../provider-e
 import type { PdfResult, PdfToolInput } from "../../core/contracts.ts";
 import { getHeadless, type HeadlessApi } from "./headless.ts";
 import { pdfExtract, pdfInfo, pdfProbe, pdfSearch, type PdfSearchHit } from "./pdf-ops.ts";
+import { readPdfPageLimit } from "../tools/source-limits.ts";
+import { formatPages } from "../../core/source-scope.ts";
 
 /**
  * The pdf-reader sub-agent (sources v0, 2026-09): reads a learner-provided
@@ -121,12 +123,15 @@ export function createPdfTools(_pdfPath: string): Record<string, Tool> {
 }
 
 /** pdf_info's body (the loop's dispatch target): the triage readout. */
-async function pdfInfoText(pdfPath: string): Promise<string> {
+async function pdfInfoText(pdfPath: string, allowed: Set<number> | null = null): Promise<string> {
 	const info = await pdfInfo(pdfPath);
+	const pages = allowed ? info.pages.filter((p) => allowed.has(p.page)) : info.pages;
 	const lines = [
 		`File: ${info.path}`,
-		`Pages: ${info.page_count} (mean text length/page: ${info.mean_text_length})`,
-		...info.pages.map(
+		allowed
+			? `Pages: LIMITED to ${formatPages([...allowed].sort((a, b) => a - b))} — no other page exists for you`
+			: `Pages: ${info.page_count} (mean text length/page: ${info.mean_text_length})`,
+		...pages.map(
 			(p) =>
 				`p${p.page}: len=${p.text_length} img=${p.image_count} math=${p.math_density.toFixed(2)}`,
 		),
@@ -167,6 +172,11 @@ export async function runPdfReaderAgent(
 	const headless = opts.headless ?? getHeadless();
 	const maxIterations = opts.maxIterations ?? MAX_ITERATIONS;
 	const pdfPath = input.path;
+	// A page-limited source (owner 2026-10-26): every tool below sees ONLY
+	// these pages — the rest of the file does not exist for this reader.
+	const allowed = readPdfPageLimit(pdfPath);
+	const allow = (pages: number[]) => (allowed ? pages.filter((p) => allowed.has(p)) : pages);
+	const limitNote = allowed ? `This PDF is LIMITED to pages ${formatPages([...allowed].sort((a, b) => a - b))}; no other page exists for you.` : "";
 
 	// Deterministic upfront failure: unreadable / unparseable
 	// for renders — the brief never starts on a broken source.
@@ -188,6 +198,7 @@ export async function runPdfReaderAgent(
 	const prompt = [
 		`PDF path: ${pdfPath}`,
 		`Question (what the teacher needs from this document): ${input.question || "(no question — give a structural overview)"}`,
+		...(limitNote ? [limitNote, "Brief only from those pages."] : []),
 		"",
 		"Read the document per your doctrine, then produce your final brief in the required format.",
 	].join("\n");
@@ -252,12 +263,16 @@ export async function runPdfReaderAgent(
 				try {
 					if (call.name === "pdf_info") {
 						opts.onActivity?.("pdf_info: triaging");
-						const r = await pdfInfoText(pdfPath);
+						const r = await pdfInfoText(pdfPath, allowed);
 						toolResults.push(toolText(call.id, call.name, String(r)));
 					} else if (call.name === "pdf_extract") {
-						const spec = String(args.pages ?? "all");
+						const asked = String(args.pages ?? "all");
+						// Limited: the asked spec narrowed to the allowed pages.
+						const spec = allowed
+							? allow(asked.trim().toLowerCase() === "all" ? [...allowed] : specNumbers(asked, Infinity)).join(",")
+							: asked;
 						opts.onActivity?.(`pdf_extract: ${spec}`);
-						const r = await pdfExtractText(pdfPath, spec);
+						const r = spec ? await pdfExtractText(pdfPath, spec) : `ERROR: ${limitNote}`;
 						toolResults.push(toolText(call.id, call.name, String(r)));
 						for (const p of specNumbers(spec, Infinity)) {
 							consulted.add(p);
@@ -271,7 +286,8 @@ export async function runPdfReaderAgent(
 						// Direct call (not the tool's execute): the loop needs the hits'
 						// pages — a hit's context lines ARE consultation, so they join
 						// the citation set (the unread-finish gate counts them).
-						const { hits } = await pdfSearch(pdfPath, query, { contextLines, literal });
+						const { hits: allHits } = await pdfSearch(pdfPath, query, { contextLines, literal });
+						const hits = allowed ? allHits.filter((h) => allowed.has(h.page)) : allHits;
 						for (const h of hits) consulted.add(h.page);
 						const cap = hits.slice(0, 40);
 						const body =
@@ -283,7 +299,7 @@ export async function runPdfReaderAgent(
 					} else if (call.name === "pdf_render") {
 						const spec = String(args.pages ?? "1");
 						const dpi = numOr(args.dpi, 150);
-						const wanted = specNumbers(spec, RENDER_BATCH_CAP);
+						const wanted = allow(specNumbers(spec, allowed ? Infinity : RENDER_BATCH_CAP)).slice(0, RENDER_BATCH_CAP);
 						opts.onActivity?.(`pdf_render: ${spec} @${dpi}dpi`);
 						const pages = await headless.renderPdfPages(pdfPath, wanted, { dpi });
 						for (const p of pages) {

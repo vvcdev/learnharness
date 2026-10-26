@@ -158,3 +158,31 @@ describe("pdf-reader loop (faux engine)", () => {
 		assert.deepEqual(result.pagesConsulted, []);
 	});
 });
+describe("a page-limited PDF (owner 2026-10-26)", () => {
+	it("every tool sees only the chosen pages", async () => {
+		const fs = await import("node:fs");
+		const os = await import("node:os");
+		const { writePdfPageLimit } = await import("../src/server/source-scope.ts");
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "lh-limited-"));
+		const limited = path.join(dir, "doc.pdf");
+		fs.copyFileSync(FIXTURE, limited);
+		writePdfPageLimit(limited, [2]);
+		const headless = fakeHeadless();
+		const engine = fauxEngine([
+			fauxAssistantMessage(
+				[
+					fauxToolCall("pdf_extract", { pages: "all" }, { id: "e1" }),
+					fauxToolCall("pdf_search", { query: ".", literal: false }, { id: "s1" }),
+					fauxToolCall("pdf_render", { pages: "1-3" }, { id: "r1" }),
+				],
+				{ stopReason: "toolUse" },
+			),
+			fauxAssistantMessage([fauxText("Brief from page 2 (p. 2). Pages consulted: 2")]),
+		]);
+		const result = await runPdfReaderAgent({ path: limited, question: "summarize" }, { engine, headless });
+		assert.deepEqual(result.pagesRead, [2]);
+		assert.deepEqual(result.pagesConsulted, [2]);
+		assert.deepEqual(headless.calls, ["render:2"]);
+		fs.rmSync(dir, { recursive: true, force: true });
+	});
+});

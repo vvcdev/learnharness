@@ -136,6 +136,13 @@ export function claimUploads(
 	return { ok: true, files: out };
 }
 
+/** A staged file's path on disk (the scope picker's outline reads it). */
+export function stagedUploadPath(batchId: string, stored: string, root = PATHS.data): { path: string; name: string } | null {
+	const meta = readMeta(batchId, root);
+	const entry = meta?.files.find((f) => f.stored === stored);
+	return entry ? { path: path.join(batchDir(batchId, root), entry.stored), name: entry.name } : null;
+}
+
 export function removeUploadBatch(batchId: string, root = PATHS.data): void {
 	if (!BATCH.test(batchId)) return;
 	fs.rmSync(batchDir(batchId, root), { recursive: true, force: true });

@@ -2,6 +2,8 @@
  * paths with the tools it already has. Nothing here touches the graph.
  * Allowlist = what read/pdf can usefully open (no Office binaries). */
 
+import { SCOPED_SOURCE_MARK, SCOPED_SOURCES_GUIDANCE } from "./source-scope.ts";
+
 export const LESSON_SOURCE_EXTENSIONS = [
 	// documents
 	".pdf",
@@ -103,5 +105,8 @@ export function appendLessonSources(text: string, paths: readonly string[]): str
 	const opening = text.trim() || (paths.length > 0 ? "Teach me from these sources." : "");
 	if (paths.length === 0) return opening;
 	const lines = paths.map((p) => `- ${p}`).join("\n");
-	return `${opening}\n\nSources for this lesson. Read them and teach from them. Use the pdf tool for PDFs and the read tool for everything else (including Word, PowerPoint, and Excel):\n${lines}`;
+	// Limited sources (owner 2026-10-26) carry their note in the line; the
+	// guidance rides along whenever one is present.
+	const scoped = paths.some((p) => p.includes(SCOPED_SOURCE_MARK)) ? `\n\n${SCOPED_SOURCES_GUIDANCE}` : "";
+	return `${opening}\n\nSources for this lesson. Read them and teach from them. Use the pdf tool for PDFs and the read tool for everything else (including Word, PowerPoint, and Excel):\n${lines}${scoped}`;
 }

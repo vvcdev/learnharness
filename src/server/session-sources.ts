@@ -43,7 +43,8 @@ export function saveLessonSources(chatId: string, files: readonly IncomingSource
 	const dir = sessionSourcesDir(chatId, root);
 	const used = new Set<string>();
 	if (fs.existsSync(dir)) {
-		for (const name of fs.readdirSync(dir)) used.add(name);
+		// Dot entries (the .scopes sidecar folder) are bookkeeping, not sources.
+		for (const name of fs.readdirSync(dir)) if (!name.startsWith(".")) used.add(name);
 	}
 	if (used.size + files.length > MAX_LESSON_SOURCES) return { ok: false, status: 400, error: `A lesson can hold ${MAX_LESSON_SOURCES} sources.` };
 	const planned: { name: string; bytes: Uint8Array }[] = [];

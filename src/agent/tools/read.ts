@@ -5,6 +5,7 @@ import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { serverExecute, type ImageFileResult } from "../tool-execute.ts";
 import { resolveSourcePath } from "./fs-shared.ts";
 import { extractOfficeText, isOfficeSourceExtension } from "./office-text.ts";
+import { readPdfPageLimit } from "./source-limits.ts";
 
 /**
  * The read tool — sources v0 (2026-09): a Node port of pi's read semantics
@@ -104,6 +105,11 @@ export const readTool: AgentTool<typeof readInput> = {
 	execute: serverExecute("read", readInput, async ({ path: rawPath, offset, limit }): Promise<string | ImageFileResult> => {
 		const absolute = resolveSourcePath(rawPath);
 		const ext = path.extname(absolute).toLowerCase();
+		// A page-limited PDF (owner 2026-10-26) opens only through the pdf
+		// tool, which serves the chosen pages and nothing else.
+		if (ext === ".pdf" && readPdfPageLimit(absolute)) {
+			throw new Error("This PDF is limited to chosen pages — read it with the pdf tool.");
+		}
 		const mime = IMAGE_MIME[ext];
 		const buffer = await fs.readFile(absolute); // ENOENT/EACCES → error result the model sees
 		if (mime) {
