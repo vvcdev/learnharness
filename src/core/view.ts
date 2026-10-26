@@ -185,6 +185,11 @@ export function projectView(messages: readonly LhMessage[], live?: LiveTurnState
 				const seconds = (m as { voice?: { seconds?: number } }).voice?.seconds;
 				parts.push({ type: "data-voice-message", id: `vm_${m.id}`, data: { seconds: seconds ?? null } });
 			}
+			// Attached images (owner 2026-10-26): thumbnails under the text.
+			const images = (m as { images?: unknown[] }).images;
+			if (Array.isArray(images) && images.length > 0) {
+				parts.push({ type: "data-images", id: `im_${m.id}`, data: { images } });
+			}
 			out.push({ id: m.id, role: "user", parts });
 			continue;
 		}

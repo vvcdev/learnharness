@@ -5,6 +5,7 @@ import { ArrowDownIcon, ChevronRightIcon, PlayIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { finishDictation, isDictationActive, useDictationTarget } from "@/components/dictation";
 import { useVoiceNotes, voiceText, VoiceNotesBox } from "@/components/voice-notes";
+import { ImageAttachButton, ImageDraftStrip, imageDropHandlers, useImageDraft } from "@/components/learner-images";
 import { useEnterSubmits } from "@/components/enter-submits";
 import { MessageResponse } from "@/components/ai-elements/message";
 import { cn } from "@/lib/utils";
@@ -327,6 +328,8 @@ function QuestionDockForm({
 	 *  here as hidden voice notes, never in the text — select modes' spoken
 	 *  thinking, text mode's spoken answer (voice-everywhere wave). */
 	const voice = useVoiceNotes();
+	/** Images of the work (owner 2026-10-26): ride the answer's thinking. */
+	const images = useImageDraft();
 	// Confidence (owner, 2026-10-01): an index into CONFIDENCE_STOPS,
 	// resting at 50 — a real coin flip by definition, untouched or
 	// deliberate (the same number, the same meaning). The dock unmounts
@@ -362,7 +365,7 @@ function QuestionDockForm({
 
 	const submit = () => {
 		// A live run may BE the answer: let it finish, then gate (doSubmit).
-		if ((!canSubmit && !isDictationActive()) || compactionRunning) return;
+		if ((!canSubmit && !isDictationActive()) || compactionRunning || images.uploading) return;
 		/* FINISH DICTATION FIRST (owner, 2026-10-01): Enter may arrive while
 		 * a run is live with reasoning still in Deepgram's hands. Stop the
 		 * run, let the last finals land in the target field, and only then
@@ -385,6 +388,7 @@ function QuestionDockForm({
 			thinking: qd.mode !== "text" ? thinkingTextRef.current.trim() || undefined : undefined,
 			spokenThinking: qd.mode !== "text" ? voiceText(voice.ref.current) : undefined,
 			spokenAnswer: qd.mode === "text" ? voiceText(voice.ref.current) : undefined,
+			images: images.refs(),
 			// Always sent on quiz answers (owner: 50 must mean 50, never
 			// "untouched"); buildAnswer drops it on "I don't know".
 			confidence: kind === "quiz" ? CONFIDENCE_STOPS[confIdx] : undefined,
@@ -825,6 +829,7 @@ function QuestionDockForm({
 				<div
 					data-testid={qd.mode === "text" ? "answer-field" : "thinking-field"}
 					className="rounded-[10px] border border-border/70 bg-background/60 transition-colors focus-within:border-primary/50"
+					{...imageDropHandlers(images)}
 				>
 					<div className="px-2.5 pt-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
 						{qd.mode === "text" ? "Your answer" : "YOUR THINKING"}
@@ -893,13 +898,15 @@ function QuestionDockForm({
 							)}
 						/>
 					)}
+					<ImageDraftStrip draft={images} className="px-2.5 pb-1.5" />
 					<div className="flex items-center justify-between gap-2 p-1">
-						<span aria-hidden className="pl-1.5 text-xs text-muted-foreground">
+						<ImageAttachButton draft={images} />
+						<span aria-hidden className="text-xs text-muted-foreground">
 								{compactionRunning ? "compacting session…" : "↵ submits · ⇧↵ newline"}
 						</span>
 						<Button
 							type="submit"
-							disabled={!canSubmit || compactionRunning}
+							disabled={!canSubmit || compactionRunning || images.uploading}
 							className="ml-auto h-9 rounded-[6px] px-3.5 text-sm font-medium"
 						>
 							Submit answer

@@ -1,5 +1,6 @@
 "use client";
 
+import { ImageThumbs } from "@/components/learner-images";
 import { useState } from "react";
 import { ConfidenceRail } from "@/components/confidence-rail";
 import { GlyphMark } from "@/components/ui/glyph-mark";
@@ -207,6 +208,8 @@ export function AnsweredCard({ answer, input }: { answer: QuestionAnswerData; in
 					inCard
 				/>
 			)}
+			{/* Images of the work on the thinking (owner 2026-10-26). */}
+			<ImageThumbs images={answer.images} className="mt-2" />
 
 			{/* px-3→removed: card p-4 + box px-3 double-inset sat the "Why" label deeper
 			    than the option box edges (owner, round 3). Sides flush with everything

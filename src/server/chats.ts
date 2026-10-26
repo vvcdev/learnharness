@@ -6,6 +6,7 @@ import { graphRevision } from "./graph.ts";
 import { stores } from "./stores.ts";
 import { isTurnRunning } from "./turn-liveness.ts";
 import { removeSessionSources } from "./session-sources.ts";
+import { removeChatImages } from "./chat-images.ts";
 
 /**
  * Server-side chat entries for the transport layer (app/api/chats*,
@@ -111,6 +112,7 @@ export async function deleteChatSession(chatId: string, mode: ChatDeleteMode): P
 	const jobsRemoved = stores.jobStore.deleteJobsForChat(chatId);
 	stores.chatStore.deleteChat(chatId);
 	removeSessionSources(chatId);
+	removeChatImages(chatId);
 	return { ok: true, mode, stats, jobsRemoved, graphRevision: graphRevision() };
 }
 

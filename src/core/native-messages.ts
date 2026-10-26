@@ -34,7 +34,7 @@
  */
 
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import type { AssistantMessage, Message, ToolResultMessage, UserMessage } from "@earendil-works/pi-ai";
+import type { AssistantMessage, ImageContent, Message, TextContent, ToolResultMessage, UserMessage } from "@earendil-works/pi-ai";
 import { QUESTION_TOOLS } from "./pending.ts";
 import {
 	CONCLUDE_ACK_TEXT,
@@ -47,6 +47,7 @@ import {
 } from "./contracts/chat.ts";
 import { compactAnswerForModel, type QuestionAnswerData } from "./question-core.ts";
 import { activeCompactionOf, keptIndexFor } from "./compaction.ts";
+import { IMAGES_LABEL, imagePlaceholder, type ImageRef } from "./images.ts";
 
 /** The hard-invariant wording for an aborted turn's unanswered calls —
  *  carried over verbatim from the pre-native era so the model's view
@@ -116,14 +117,22 @@ export function newMessageId(): string {
  *  2026-10-25): the recorded length for the "Voice message · 0:41"
  *  bubble. The transcript lives only in the model content. */
 export type UserVoiceMeta = { voice?: { seconds: number } };
+/** A user message's attached images (show-your-work images, owner
+ *  2026-10-26): REFS only — toLlmMessages loads the bytes at the wire. */
+export type UserImagesMeta = { images?: ImageRef[] };
 
-export function newUserMessage(text: string, voice?: UserVoiceInput): LhMessage & UserMessage & UserVoiceMeta {
+export function newUserMessage(
+	text: string,
+	voice?: UserVoiceInput,
+	images?: readonly ImageRef[],
+): LhMessage & UserMessage & UserVoiceMeta & UserImagesMeta {
 	return {
 		id: newMessageId(),
 		role: "user",
 		content: voiceMessageContent(text, voice),
 		timestamp: Date.now(),
 		...(voice?.spoken.trim() ? { voice: { seconds: voice.seconds } } : {}),
+		...(images && images.length > 0 ? { images: [...images] } : {}),
 	};
 }
 
@@ -132,13 +141,19 @@ export function newUserMessage(text: string, voice?: UserVoiceInput): LhMessage 
  *  rides agent.steer(), the live stream's message events, and the settled
  *  record, so the optimistic queued indicator and the transcript card
  *  upsert by one identity. */
-export function newUserSteer(text: string, id: string, voice?: UserVoiceInput): LhMessage & UserMessage & UserVoiceMeta {
+export function newUserSteer(
+	text: string,
+	id: string,
+	voice?: UserVoiceInput,
+	images?: readonly ImageRef[],
+): LhMessage & UserMessage & UserVoiceMeta & UserImagesMeta {
 	return {
 		id,
 		role: "user",
 		content: voiceMessageContent(text, voice),
 		timestamp: Date.now(),
 		...(voice?.spoken.trim() ? { voice: { seconds: voice.seconds } } : {}),
+		...(images && images.length > 0 ? { images: [...images] } : {}),
 	};
 }
 
@@ -258,7 +273,12 @@ export function newGraphContextMessage(picks: readonly GraphContextPick[], chain
  *  content label is the single "Your thinking"; `details` keeps the raw
  *  payload for the transcript card. One problem may carry many
  *  submissions. */
-export function newThinkingMessage(problemCallId: string, text: string, spoken?: string): LhMarkerMessage {
+export function newThinkingMessage(
+	problemCallId: string,
+	text: string,
+	spoken?: string,
+	images?: readonly ImageRef[],
+): LhMarkerMessage {
 	// Voice notes (owner 2026-10-25): the spoken transcript is its own
 	// labeled section for the model; the card renders details.text only.
 	const sections = [
@@ -271,7 +291,12 @@ export function newThinkingMessage(problemCallId: string, text: string, spoken?:
 		customType: "practice-thinking",
 		content: sections.join("\n\n"),
 		display: true,
-		details: { problemCallId, text, ...(spoken ? { spoken } : {}) },
+		details: {
+			problemCallId,
+			text,
+			...(spoken ? { spoken } : {}),
+			...(images && images.length > 0 ? { images: [...images] } : {}),
+		},
 		timestamp: Date.now(),
 	};
 }
@@ -530,7 +555,57 @@ function resultIdsFrom(messages: readonly AgentMessage[]): Set<string> {
  * Contract (pi-agent-core): never throws — an unknown shape passes
  * through untouched rather than killing the loop.
  */
-export function toLlmMessages(messages: readonly AgentMessage[]): Message[] {
+/** The wire conversion's options. `loadImage` reads one stored image's
+ *  bytes (server only — the agent build wires it); absent, every image
+ *  becomes its text placeholder (token estimates, tests, the browser). */
+export interface LlmMessageOptions {
+	loadImage?: (ref: ImageRef) => { data: string; mimeType: string } | null;
+}
+
+/** The practice tools whose clean calls END an image's lifetime: an image
+ *  that rode a practice item is visible to the model until a later
+ *  practice item is posed or concluded (owner ruling, 2026-10-26). */
+export const PRACTICE_ITEM_TOOLS: readonly string[] = [PRACTICE_PROBLEM_TOOL, PRACTICE_CONCLUDE_TOOL];
+
+/** The record index of the newest message carrying a clean practice-item
+ *  call (-1 when none): practice images at an earlier index are expired. */
+function lastPracticeItemIndex(messages: readonly LhMessage[]): number {
+	const clean = cleanToolCallIds(messages);
+	for (let i = messages.length - 1; i >= 0; i--) {
+		const m = messages[i]!;
+		if ((m as { role?: string }).role !== "assistant") continue;
+		const hit = (m as AssistantMessage).content.some(
+			(b) => b.type === "toolCall" && PRACTICE_ITEM_TOOLS.includes(b.name) && clean.has(b.id),
+		);
+		if (hit) return i;
+	}
+	return -1;
+}
+
+/** The wire parts for a message's images: the label, then each image
+ *  (loaded) or its placeholder (expired / missing / no loader). */
+function imageParts(
+	refs: readonly ImageRef[],
+	expired: boolean,
+	options: LlmMessageOptions,
+): Array<TextContent | ImageContent> {
+	const parts: Array<TextContent | ImageContent> = [{ type: "text", text: `${IMAGES_LABEL}:` }];
+	for (const ref of refs) {
+		const loaded = expired ? null : (options.loadImage?.(ref) ?? null);
+		parts.push(
+			loaded
+				? { type: "image", data: loaded.data, mimeType: loaded.mimeType }
+				: { type: "text", text: imagePlaceholder(ref, expired ? "expired" : "missing") },
+		);
+	}
+	return parts;
+}
+
+function refsOf(value: unknown): ImageRef[] {
+	return Array.isArray(value) ? (value as ImageRef[]) : [];
+}
+
+export function toLlmMessages(messages: readonly AgentMessage[], options: LlmMessageOptions = {}): Message[] {
 	// THE COMPACTION CUT (owner round 14, 2026-10-05): the ACTIVE marker
 	// (the newest — chained compactions rule last) names the first kept
 	// message; everything before it is replaced by the marker's content
@@ -565,6 +640,7 @@ export function toLlmMessages(messages: readonly AgentMessage[]): Message[] {
 	// context.systemPrompt + context.tools around its projection.
 	const leading =
 		(messages[0] as { role?: string } | undefined)?.role === "system" ? (messages[0] as Message) : null;
+	const itemCut = lastPracticeItemIndex(lhMessages);
 	const out: Message[] = [];
 	if (leading) out.push(leading);
 	if (head) out.push(head);
@@ -581,15 +657,40 @@ export function toLlmMessages(messages: readonly AgentMessage[]): Message[] {
 			// marker whose cut could not resolve has no head and renders as
 			// its user text — honest degradation.)
 			if (marker.customType === "compaction" && head !== null && marker.id === active!.id) continue;
+			// Thinking images (owner 2026-10-26) ride the marker's details;
+			// they expire once a later practice item is posed or concluded.
+			const thinkingImages =
+				marker.customType === "practice-thinking" ? refsOf((marker.details as { images?: unknown }).images) : [];
 			out.push({
 				role: "user",
-				content: [{ type: "text", text: marker.content }],
+				content: [
+					...(marker.content ? [{ type: "text" as const, text: marker.content }] : []),
+					...(thinkingImages.length > 0 ? imageParts(thinkingImages, i < itemCut, options) : []),
+				],
 			timestamp: marker.timestamp,
 			});
 			continue;
 		}
 		// Strip the record id: the wire carries the native shape only.
 		const { id: _id, ...native } = m as LhMessage;
+		if (role === "user" && (native as UserImagesMeta).images) {
+			// Chat images (owner 2026-10-26): the session keeps them.
+			const { images, ...user } = native as UserMessage & UserImagesMeta;
+			const text = typeof user.content === "string" ? [{ type: "text" as const, text: user.content }] : user.content;
+			out.push({ ...user, content: [...text.filter((c) => c.type !== "text" || c.text), ...imageParts(refsOf(images), false, options)] });
+			continue;
+		}
+		if (role === "toolResult") {
+			// Answer images ride QuestionAnswerData.images: practice answers
+			// expire like thinking images; teaching answers stay.
+			const result = native as ToolResultMessage;
+			const answerImages = refsOf((result.details as { images?: unknown } | undefined)?.images);
+			if (answerImages.length > 0) {
+				const expired = PRACTICE_ITEM_TOOLS.includes(result.toolName) && i < itemCut;
+				out.push({ ...result, content: [...result.content, ...imageParts(answerImages, expired, options)] });
+				continue;
+			}
+		}
 		out.push(native as Message);
 		// Dangling-call synthesis: an assistant message whose toolCalls have
 		// no results in the remaining tail (abort mid-question) — the

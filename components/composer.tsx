@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { ArrowRightIcon, CornerDownLeftIcon, SquareIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { VoiceNotesBox, type VoiceNotes } from "@/components/voice-notes";
+import { ImageDraftStrip, imageDropHandlers, type ImageDraft } from "@/components/learner-images";
 
 /**
  * The chat composer — content row ONLY (the persistent rounded shell lives in
@@ -52,6 +53,7 @@ export function Composer({
 	onNext,
 	attachments,
 	voice,
+	images,
 }: {
 	busy: boolean;
 	value: string;
@@ -82,6 +84,9 @@ export function Composer({
 	/** The voice box (voice-everywhere wave, owner 2026-10-25): dictation
 	 *  becomes hidden voice notes riding the send — never text here. */
 	voice?: { value: VoiceNotes; onClear: () => void };
+	/** Show-your-work images (owner 2026-10-26): the paperclip routes
+	 *  picked images here; paste and drop land here too. */
+	images?: ImageDraft;
 }) {
 	const act = () => {
 		const action = enterAction({ busy, canSend, nextProblem });
@@ -153,7 +158,9 @@ export function Composer({
 				e.preventDefault();
 				act();
 			}}
+			{...(images ? imageDropHandlers(images) : {})}
 		>
+			{images && <ImageDraftStrip draft={images} className="px-1.5 pb-1.5" />}
 			{attachments ? attachments(fields) : fields()}
 			{voice && <VoiceNotesBox value={voice.value} onClear={voice.onClear} className="mt-1.5" />}
 		</form>

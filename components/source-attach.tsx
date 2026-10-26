@@ -3,6 +3,7 @@
 import { useRef, type ReactNode } from "react";
 import { PaperclipIcon, XIcon } from "lucide-react";
 import { appendProjectContext, LESSON_SOURCE_ACCEPT, lessonSourceError } from "@/src/core";
+import { isImageFile } from "@/components/learner-images";
 
 /** A picked file already copied into the app's uploads folder. */
 export type AttachedSource = {
@@ -146,11 +147,15 @@ export function SourceAttachButton({
 	disabled,
 	onChange,
 	onError,
+	onImages,
 }: {
 	files: readonly AttachedSource[];
 	disabled?: boolean;
 	onChange: (files: AttachedSource[]) => void;
 	onError: (error: string | null) => void;
+	/** In a live session (owner 2026-10-26): picked images go to the model
+	 *  as pictures with the message; everything else stays a lesson source. */
+	onImages?: (files: File[]) => void;
 }) {
 	const inputRef = useRef<HTMLInputElement>(null);
 	return (
@@ -174,9 +179,15 @@ export function SourceAttachButton({
 				className="sr-only"
 				tabIndex={-1}
 				onChange={(event) => {
-					const list = event.target.files;
+					const all = Array.from(event.target.files ?? []);
 					event.target.value = "";
-					void stagePickedFiles(files, list).then((picked) => {
+					const images = onImages ? all.filter(isImageFile) : [];
+					if (images.length > 0) onImages!(images);
+					const rest = all.filter((file) => !images.includes(file));
+					if (rest.length === 0) return;
+					const list = new DataTransfer();
+					for (const file of rest) list.items.add(file);
+					void stagePickedFiles(files, list.files).then((picked) => {
 						onChange(picked.files);
 						onError(picked.error);
 					});
@@ -194,17 +205,20 @@ export function SourcePicker({
 	onChange,
 	onError,
 	row,
+	onImages,
 }: {
 	files: readonly AttachedSource[];
 	disabled?: boolean;
 	error?: string | null;
 	onChange: (files: AttachedSource[]) => void;
 	onError: (error: string | null) => void;
+	/** Images route (see SourceAttachButton). */
+	onImages?: (files: File[]) => void;
 	/** When set, only the paperclip is returned so the parent can place it in the text row. */
 	row?: (attach: ReactNode) => ReactNode;
 }) {
 	const attach = (
-		<SourceAttachButton files={files} disabled={disabled} onChange={onChange} onError={onError} />
+		<SourceAttachButton files={files} disabled={disabled} onChange={onChange} onError={onError} onImages={onImages} />
 	);
 	return (
 		<>

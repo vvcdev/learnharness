@@ -47,6 +47,7 @@ export * from "./model-catalog.ts";
 export { claudeCodeStatus } from "../agent/claude-code-auth.ts";
 export { saveLessonSources, removeSessionSources } from "./session-sources.ts";
 export { stageUploads, claimUploads, removeUploadBatch } from "./uploads.ts";
+export { saveChatImages, readChatImage, chatImageMimeType } from "./chat-images.ts";
 export {
 	listProjects,
 	getProject,

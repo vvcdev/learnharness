@@ -28,6 +28,7 @@
 import type { QuestionAnswerData } from "./question-core.ts";
 import type { LhMessage } from "./native-messages.ts";
 import type { UserVoiceInput } from "./contracts/chat.ts";
+import { parseImageRefs, type ImageRef } from "./images.ts";
 import {
 	activeProblemOf,
 	concludedByDismissalPair,
@@ -43,14 +44,14 @@ import { QUESTION_TOOLS, toolQuestionKind } from "./pending.ts";
 
 /** One client-originated input event (the POST body's `input`). */
 export type ChatInput =
-	| { type: "text"; text: string; voice?: UserVoiceInput }
+	| { type: "text"; text: string; voice?: UserVoiceInput; images?: ImageRef[] }
 	| { type: "answer"; toolCallId: string; answer: QuestionAnswerData }
 	| { type: "continue" }
 	/** The practice dock's two buttons (owner, 2026-10-04): the learner's
 	 *  thinking on the ACTIVE problem — one lane (owner 2026-10-05):
 	 *  whether it claims an answer is read from the text. One
 	 *  problem may carry many submissions; each is its own turn. */
-	| { type: "thinking"; problemCallId: string; text: string; spoken?: string }
+	| { type: "thinking"; problemCallId: string; text: string; spoken?: string; images?: ImageRef[] }
 	/** The practice move-on signal (owner round 16): the learner's
 	 *  explicit go-ahead during the between-problems pause — the Next
 	 *  chip or Enter on an empty composer. Practice sessions only, and
@@ -111,7 +112,7 @@ export function parseDismissInput(input: unknown): DismissInput {
  *  (a send with no live turn is a plain text send, which already exists).
  *  The id is client-minted (steer_<localid>): the queued indicator keys on
  *  it, and the drain's message events upsert the real card by the same id. */
-export type UserSteerInput = { type: "steer"; id: string; text: string; voice?: UserVoiceInput };
+export type UserSteerInput = { type: "steer"; id: string; text: string; voice?: UserVoiceInput; images?: ImageRef[] };
 
 /** The optional voice part of a text/steer input: a non-empty transcript
  *  + a finite non-negative length; anything else is no voice. */
@@ -132,10 +133,11 @@ export function parseUserSteerInput(input: unknown): UserSteerInput {
 		throw new ChatInputError("steer input requires a client-minted id");
 	}
 	const voice = parseVoice(i.voice);
-	if (typeof i.text !== "string" || (i.text.trim().length === 0 && !voice)) {
+	const images = parseImageRefs(i.images);
+	if (typeof i.text !== "string" || (i.text.trim().length === 0 && !voice && !images)) {
 		throw new ChatInputError("steer input requires non-empty text");
 	}
-	return { type: "steer", id: i.id, text: i.text, ...(voice ? { voice } : {}) };
+	return { type: "steer", id: i.id, text: i.text, ...(voice ? { voice } : {}), ...(images ? { images } : {}) };
 }
 
 /** The native appends a dismissal makes (pure — same orphan discipline
@@ -170,11 +172,13 @@ export function parseChatInput(input: unknown): ChatInput {
 		case "text":
 			{
 				// Voice (owner 2026-10-25): typed text OR a spoken transcript.
+				// Images (owner 2026-10-26): a picture of his work is a message too.
 				const voice = parseVoice(i.voice);
-				if (typeof i.text !== "string" || (i.text.trim().length === 0 && !voice)) {
+				const images = parseImageRefs(i.images);
+				if (typeof i.text !== "string" || (i.text.trim().length === 0 && !voice && !images)) {
 					throw new ChatInputError("text input requires non-empty text");
 				}
-				return { type: "text", text: i.text, ...(voice ? { voice } : {}) };
+				return { type: "text", text: i.text, ...(voice ? { voice } : {}), ...(images ? { images } : {}) };
 			}
 		case "answer":
 			if (typeof i.toolCallId !== "string" || i.toolCallId.length === 0) {
@@ -183,7 +187,14 @@ export function parseChatInput(input: unknown): ChatInput {
 			if (typeof i.answer !== "object" || i.answer === null) {
 				throw new ChatInputError("answer input requires the graded answer object");
 			}
-			return { type: "answer", toolCallId: i.toolCallId, answer: i.answer as QuestionAnswerData };
+			{
+				// Answer images (owner 2026-10-26): only well-formed refs survive.
+				const answer = { ...(i.answer as QuestionAnswerData) };
+				const images = parseImageRefs(answer.images);
+				if (images) answer.images = images;
+				else delete answer.images;
+				return { type: "answer", toolCallId: i.toolCallId, answer };
+			}
 		case "continue":
 			return { type: "continue" };
 		case "thinking":
@@ -195,15 +206,19 @@ export function parseChatInput(input: unknown): ChatInput {
 			if (typeof i.text !== "string" || (i.spoken !== undefined && typeof i.spoken !== "string")) {
 				throw new ChatInputError("thinking input requires string text");
 			}
-			if (i.text.trim().length === 0 && !(typeof i.spoken === "string" && i.spoken.trim().length > 0)) {
-				throw new ChatInputError("thinking input requires non-empty text or spoken thinking");
+			{
+				const images = parseImageRefs(i.images);
+				if (i.text.trim().length === 0 && !(typeof i.spoken === "string" && i.spoken.trim().length > 0) && !images) {
+					throw new ChatInputError("thinking input requires non-empty text, spoken thinking, or images");
+				}
+				return {
+					type: "thinking",
+					problemCallId: i.problemCallId,
+					text: i.text,
+					...(typeof i.spoken === "string" && i.spoken.trim() ? { spoken: i.spoken } : {}),
+					...(images ? { images } : {}),
+				};
 			}
-			return {
-				type: "thinking",
-				problemCallId: i.problemCallId,
-				text: i.text,
-				...(typeof i.spoken === "string" && i.spoken.trim() ? { spoken: i.spoken } : {}),
-			};
 		case "next":
 			return { type: "next" };
 		default:
@@ -226,7 +241,7 @@ export function inputAppends(
 ): LhMessage[] {
 	switch (input.type) {
 		case "text":
-			return [...dismissalConclusion(record), newUserMessage(input.text, input.voice)];
+			return [...dismissalConclusion(record), newUserMessage(input.text, input.voice, input.images)];
 		case "answer": {
 			const pending = danglingQuestionOf(record.messages);
 			if (!pending || pending.toolCallId !== input.toolCallId) {
@@ -241,7 +256,7 @@ export function inputAppends(
 			if (!active || active.toolCallId !== input.problemCallId) {
 				throw new ChatInputError("thinking input targets no active problem");
 			}
-			return [...dismissalConclusion(record), newThinkingMessage(input.problemCallId, input.text, input.spoken)];
+			return [...dismissalConclusion(record), newThinkingMessage(input.problemCallId, input.text, input.spoken, input.images)];
 		}
 		case "next": {
 			// Honest 400s, the thinking gate's discipline: the signal is a

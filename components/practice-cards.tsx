@@ -1,8 +1,9 @@
 "use client";
 
+import { ImageThumbs } from "@/components/learner-images";
 import { MessageResponse } from "@/components/ai-elements/message";
 import { cn } from "@/lib/utils";
-import { repairMathForDisplay, type ArtifactPartProps } from "@/src/core";
+import { repairMathForDisplay, type ArtifactPartProps, type ImageRef } from "@/src/core";
 
 /**
  * The practice transcript cards (practice sessions, owner design
@@ -55,6 +56,8 @@ export interface PracticeThinkingData {
 	text: string;
 	/** Voice notes' transcript (owner 2026-10-25) — never rendered. */
 	spoken?: string;
+	/** Images of the work (owner 2026-10-26) — thumbnails under the row. */
+	images?: ImageRef[];
 }
 
 export function ProblemCard({ part }: ArtifactPartProps) {
@@ -298,5 +301,11 @@ export function ThinkingCard({ data }: { data: PracticeThinkingData }) {
 	// 2026-10-07): full-width band + rail, arriving expanded.
 	// Voice notes never render (owner 2026-10-25): only the typed text, plus
 	// the "+ VOICE" tag when he spoke.
-	return <ThinkingBlock testId="thinking-card" label="YOUR THINKING" text={data.text} voice={Boolean(data.spoken)} defaultOpen />;
+	// Images (owner 2026-10-26): thumbnails beneath, inset to the text.
+	return (
+		<>
+			<ThinkingBlock testId="thinking-card" label="YOUR THINKING" text={data.text} voice={Boolean(data.spoken)} defaultOpen />
+			<ImageThumbs images={data.images} className="mb-2 pl-[3ch]" />
+		</>
+	);
 }

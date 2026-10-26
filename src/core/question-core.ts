@@ -19,6 +19,7 @@
 
 import { Type, type Static } from "typebox";
 import { stripModelValueDebris } from "./value-debris.ts";
+import type { ImageRef } from "./images.ts";
 
 // ─── shared types ───────────────────────────────────────────────────────────
 
@@ -472,6 +473,9 @@ export interface QuestionAnswerData {
 	/** A quiz answered BY VOICE alone — no pick (owner 2026-10-25): no
 	 *  client grade; the tutor judges from spokenThinking. */
 	byVoice?: boolean;
+	/** Images of his work attached to the thinking (owner 2026-10-26):
+	 *  refs only — the wire loads the bytes (toLlmMessages). */
+	images?: ImageRef[];
 	confidence?: number; // quiz only: the learner's stated probability (0-100, raw) that his selected answer is correct — never sent on "I don't know" (owner, 2026-10-01)
 	correct?: boolean; // quiz only
 	correctIndices?: number[]; // quiz only (rendering)
@@ -502,6 +506,7 @@ export interface AnswerRequest {
 	spokenThinking?: string; // voice notes on the question (never shown back)
 	spokenReadingThinking?: string; // voice notes while reading (never shown back)
 	spokenAnswer?: string; // a free-text answer spoken (never shown back)
+	images?: ImageRef[]; // images of his work on the thinking (refs)
 	confidence?: number; // quiz only: 0-100 raw probability — 50 is a real coin flip, always sent (owner, 2026-10-01)
 }
 
@@ -718,6 +723,7 @@ export function buildAnswer(qd: QuestionData, req: AnswerRequest, tool?: string)
 		...(req.spokenThinking?.trim() ? { spokenThinking: req.spokenThinking.trim() } : {}),
 		...(req.spokenReadingThinking?.trim() ? { spokenReadingThinking: req.spokenReadingThinking.trim() } : {}),
 		...(req.spokenAnswer?.trim() ? { spokenAnswer: req.spokenAnswer.trim() } : {}),
+		...(req.images && req.images.length > 0 ? { images: [...req.images] } : {}),
 		answeredAt: new Date().toISOString(),
 	};
 	// resolve selected option values → OptionAnswer (in display order)
@@ -811,5 +817,8 @@ export function compactAnswerForModel(ad: QuestionAnswerData): Record<string, un
 	if (ad.spokenThinking) out.spokenThinking = ad.spokenThinking;
 	if (ad.spokenReadingThinking) out.spokenThinkingWhileReading = ad.spokenReadingThinking;
 	if (ad.spokenAnswer) out.spokenAnswer = ad.spokenAnswer;
+	// The images themselves ride as image parts after this JSON (the wire
+	// seam); the count tells the model they belong to this answer.
+	if (Array.isArray(ad.images) && ad.images.length > 0) out.imagesAttached = ad.images.length;
 	return out;
 }

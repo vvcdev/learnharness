@@ -52,7 +52,9 @@ import { PlanMarginalia, planExists } from "@/components/plan-window";
 import { MermaidOverlay, SessionMermaidContext } from "@/components/session-overlay";
 import { AbortTurnDialog, type AbortMode } from "@/components/abort-turn-dialog";
 import { ArrowRightIcon, WaypointsIcon } from "lucide-react";
-import type { PlanBlockData, UserVoiceInput } from "@/src/core";
+import { ImageInputContext, ImageThumbs, useImageDraft } from "@/components/learner-images";
+import { useModelCatalog } from "@/components/model-picker";
+import type { ImageRef, PlanBlockData, UserVoiceInput } from "@/src/core";
 import { QuestionDock } from "@/components/question-dock";
 import { SessionFind } from "@/components/session-find";
 import { SessionMessageNavigation } from "@/components/session-navigation";
@@ -497,10 +499,16 @@ export function Chat({
 	// the dock stays mounted (the problem is still active until the agent
 	// concludes).
 	const submitThinking = useCallback(
-		(text: string, spoken?: string) => {
+		(text: string, spoken?: string, images?: ImageRef[]) => {
 			const problem = activeProblemRef.current;
 			if (!problem) return;
-			void send({ type: "thinking", problemCallId: problem.toolCallId, text, ...(spoken ? { spoken } : {}) });
+			void send({
+				type: "thinking",
+				problemCallId: problem.toolCallId,
+				text,
+				...(spoken ? { spoken } : {}),
+				...(images ? { images } : {}),
+			});
 		},
 		[send],
 	);
@@ -666,6 +674,21 @@ export function Chat({
 	/* Voice everywhere (owner 2026-10-25): composer dictation becomes hidden
 	 * voice notes riding the send — never text in the box. */
 	const composerVoice = useVoiceNotes();
+	/* Show-your-work images (owner 2026-10-26): the session model's
+	 * capability gates every image affordance; the composer's draft rides
+	 * the next send (the paperclip routes picked images here). */
+	const [sessionModel, setSessionModel] = useState<string | undefined>();
+	const { catalog: modelCatalog } = useModelCatalog();
+	const imageInput = useMemo(
+		() => ({
+			chatId,
+			enabled: Boolean(
+				sessionModel && modelCatalog?.models.some((m) => `${m.provider}:${m.id}` === sessionModel && m.input.includes("image")),
+			),
+		}),
+		[chatId, sessionModel, modelCatalog],
+	);
+	const composerImages = useImageDraft(imageInput);
 	const dictation = useDictation({ append: composerVoice.add });
 	/* When a dictation run ends, the bare composer takes focus (owner
 	 * 2026-10-01) — the hands are already on the keyboard from the stop.
@@ -703,7 +726,12 @@ export function Chat({
 	// affordance).
 	const [compacting, setCompacting] = useState(initiallyCompacting);
 	const canSend =
-		(text.trim().length > 0 || dictation.active || sources.length > 0 || composerVoice.value.notes.length > 0) &&
+		(text.trim().length > 0 ||
+			dictation.active ||
+			sources.length > 0 ||
+			composerVoice.value.notes.length > 0 ||
+			composerImages.images.length > 0) &&
+		!composerImages.uploading &&
 		!pending &&
 		!activeProblem &&
 		!compacting;
@@ -1171,7 +1199,9 @@ export function Chat({
 		const attached = sourcesRef.current;
 		const spoken = voiceText(composerVoice.ref.current);
 		const voice = spoken ? { spoken, seconds: composerVoice.ref.current.seconds } : undefined;
-		if (!t && attached.length === 0 && !voice) return;
+		const images = composerImages.refs();
+		if (composerImages.uploading) return;
+		if (!t && attached.length === 0 && !voice && !images) return;
 		if (!steering && busy) return;
 		let textOut = t;
 		if (attached.length > 0) {
@@ -1186,8 +1216,9 @@ export function Chat({
 		draftRef.current = textOut;
 		applyText("");
 		composerVoice.clear();
-		if (steering) void steer(textOut, voice);
-		else void send({ type: "text", text: textOut, ...(voice ? { voice } : {}) });
+		composerImages.clear();
+		if (steering) void steer(textOut, voice, images);
+		else void send({ type: "text", text: textOut, ...(voice ? { voice } : {}), ...(images ? { images } : {}) });
 	};
 	const doSend = () => {
 		void deliver(false);
@@ -1207,6 +1238,7 @@ export function Chat({
 	};
 
 	return (
+		<ImageInputContext.Provider value={imageInput}>
 		<ChatActionsContext.Provider
 			value={{
 				chatId,
@@ -1374,7 +1406,7 @@ export function Chat({
 								<PhaseDivider key={m.id || `m-${mi}`} phase="plan" />
 							) : m.role === "user" &&
 							  m.parts.length > 0 &&
-							  m.parts.every((p) => p.type.startsWith("data-") && p.type !== "data-voice-message") ? (
+							  m.parts.every((p) => p.type.startsWith("data-") && p.type !== "data-voice-message" && p.type !== "data-images") ? (
 								// Marker cards (custom messages, 2026-10-04): user-side
 								// scaffolding — the graph-context pick, the practice
 								// thinking trace — render as cards in the transcript
@@ -1472,6 +1504,12 @@ export function Chat({
 													.filter((p) => p.type === "data-voice-message")
 													.map((p, pi) => (
 														<VoiceMessageLine key={pi} seconds={(p.data as { seconds?: number | null } | undefined)?.seconds ?? null} />
+													))}
+												{/* Images of the learner's work (owner 2026-10-26): thumbnails → lightbox. */}
+												{m.parts
+													.filter((p) => p.type === "data-images")
+													.map((p, pi) => (
+														<ImageThumbs key={pi} images={(p.data as { images?: ImageRef[] } | undefined)?.images} className="mt-1.5" />
 													))}
 											</div>
 									) : (
@@ -1636,6 +1674,7 @@ export function Chat({
 					practice={activeProblem}
 					compactionRunning={compacting}
 					onSubmitThinking={submitThinking}
+					onModelChange={setSessionModel}
 					chatId={chatId}
 					plan={hasPlan ? <PlanMarginalia messages={messages} /> : undefined}
 					onOpenPlan={() => setPlanOpen(true)}
@@ -1684,8 +1723,10 @@ export function Chat({
 							onStop={abortInFlightTurn}
 							canSend={canSend}
 							voice={{ value: composerVoice.value, onClear: composerVoice.clear }}
+							images={composerImages}
 							attachments={(row) => (
 								<SourcePicker
+									onImages={(files) => void composerImages.add(files)}
 									files={sources}
 									disabled={compacting}
 									error={sourceError}
@@ -1763,6 +1804,7 @@ export function Chat({
 			}}
 		/>
 		</ChatActionsContext.Provider>
+		</ImageInputContext.Provider>
 	);
 }
 
@@ -1899,6 +1941,7 @@ function DockOverlay({
 	dictationCancel,
 	setupCta,
 	queuedSteers,
+	onModelChange,
 }: {
 	pending: ReturnType<typeof findPendingToolCall>;
 	/** Compaction running for this chat (round 14) — the docks' submit
@@ -1909,7 +1952,10 @@ function DockOverlay({
 	 *  question (the composer is replaced); null in teaching sessions. */
 	practice: { toolCallId: string; input: unknown } | null;
 	/** (commit, text) — the practice dock's two submit lanes. */
-	onSubmitThinking: (text: string, spoken?: string) => void;
+	onSubmitThinking: (text: string, spoken?: string, images?: ImageRef[]) => void;
+	/** The session model's provider:id (the stats bar's model control
+	 *  reports it) — the image affordances key on its capability. */
+	onModelChange?: (model: string | undefined) => void;
 	/** Teach-phase pending question: arrives collapsed behind the reveal button (W5). */
 	requiresReveal: boolean;
 	/** The reading-thinking draft (owner 2026-10-03) — owned by ChatView so
@@ -2404,6 +2450,7 @@ function DockOverlay({
 						pricing={pricing}
 						dictationSlot={dictationSlot}
 						chatId={chatId}
+						onModelChange={onModelChange}
 					/>
 					{/* The scroll-down disc (moved here from the Conversation,
 					    owner refinement round 2026-09-24): anchored to the BLOCK's

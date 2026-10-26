@@ -7,8 +7,9 @@ import { Button } from "@/components/ui/button";
 import { finishDictation, isDictationActive, useDictationTarget } from "@/components/dictation";
 import { useVoiceNotes, voiceText, VoiceNotesBox } from "@/components/voice-notes";
 import { useEnterSubmits } from "@/components/enter-submits";
+import { ImageAttachButton, ImageDraftStrip, imageDropHandlers, useImageDraft } from "@/components/learner-images";
 import { cn } from "@/lib/utils";
-import { repairMathForDisplay } from "@/src/core";
+import { repairMathForDisplay, type ImageRef } from "@/src/core";
 
 /**
  * The practice dock (practice sessions, owner design 2026-10-04): an
@@ -40,8 +41,9 @@ export interface PracticeDockProps {
 	expanded: boolean;
 	onExpand: () => void;
 	/** text — POST {type:"thinking"} (one lane; the register is read from the text).
-	 *  `spoken`: the voice box's transcript (owner 2026-10-25), never shown. */
-	onSubmit: (text: string, spoken?: string) => void;
+	 *  `spoken`: the voice box's transcript (owner 2026-10-25), never shown.
+	 *  `images`: pictures of the work (owner 2026-10-26). */
+	onSubmit: (text: string, spoken?: string, images?: ImageRef[]) => void;
 	/** Escape in the thinking field stops dictation (threaded from the page). */
 	onEscape?: () => void;
 	/** Compaction is running for this chat (owner round 14): the thinking
@@ -62,9 +64,11 @@ export function PracticeDock({ problemCallId, input, expanded, onExpand, onSubmi
 	 * in the separate voice box as hidden notes — never in the text. */
 	const voice = useVoiceNotes();
 	useDictationTarget(voice.add, true);
+	/* Images of the work (owner 2026-10-26): button, paste, drop. */
+	const images = useImageDraft();
 
 	const submit = () => {
-		if (compactionRunning) return;
+		if (compactionRunning || images.uploading) return;
 		// Finish a live run first so its last words reach the voice box
 		// (the question dock's "nothing gets lost" law).
 		if (isDictationActive()) {
@@ -76,11 +80,13 @@ export function PracticeDock({ problemCallId, input, expanded, onExpand, onSubmi
 	const doSubmit = () => {
 		const text = thinkingRef.current.trim();
 		const spoken = voiceText(voice.ref.current);
-		if (text.length === 0 && !spoken) return;
+		const refs = images.refs();
+		if (text.length === 0 && !spoken && !refs) return;
 		thinkingRef.current = "";
 		setThinking("");
 		voice.clear();
-		onSubmit(text, spoken);
+		images.clear();
+		onSubmit(text, spoken, refs);
 	};
 
 	/* ENTER SUBMITS FROM ANYWHERE (owner round 6, 2026-10-05): dictation
@@ -126,6 +132,7 @@ export function PracticeDock({ problemCallId, input, expanded, onExpand, onSubmi
 			<div
 				data-testid="practice-thinking-field"
 				className="m-1.5 rounded-[10px] border border-border/70 bg-background/60 transition-colors focus-within:border-primary/50"
+				{...imageDropHandlers(images)}
 			>
 				<div className="px-2.5 pt-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
 					YOUR THINKING
@@ -162,14 +169,20 @@ export function PracticeDock({ problemCallId, input, expanded, onExpand, onSubmi
 				    question dock's — hint left, the SAME Button (h-9, px-3.5),
 				    one p-1 row. Corner radii concentric: shell 16 − m-1.5 (6) =
 				    field 10 − p-1 (4) = button 6. */}
+				<ImageDraftStrip draft={images} className="px-2.5 pb-1.5" />
 				<div className="flex items-center justify-between gap-2 p-1">
-					<span aria-hidden className="pl-1.5 text-xs text-muted-foreground">
+					<ImageAttachButton draft={images} />
+					<span aria-hidden className="text-xs text-muted-foreground">
 						{compactionRunning ? "compacting session…" : "↵ submits · ⇧↵ newline"}
 					</span>
 					<Button
 						type="button"
 						data-testid="practice-send"
-						disabled={(thinking.trim().length === 0 && voice.value.notes.length === 0) || compactionRunning}
+						disabled={
+							(thinking.trim().length === 0 && voice.value.notes.length === 0 && images.images.length === 0) ||
+							images.uploading ||
+							compactionRunning
+						}
 						onClick={() => submit()}
 						className="ml-auto h-9 rounded-[6px] px-3.5 text-sm font-medium"
 					>

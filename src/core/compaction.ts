@@ -311,7 +311,8 @@ export function serializeForSummary(messages: readonly LhMessage[]): string {
 	for (const m of messages) {
 		const role = (m as { role?: string }).role;
 		if (role === "user") {
-			lines.push(`[LEARNER] ${(m as { content: string }).content}`);
+			const images = (m as { images?: unknown[] }).images?.length ?? 0;
+			lines.push(`[LEARNER] ${(m as { content: string }).content}${images > 0 ? ` (${images} image${images === 1 ? "" : "s"} of the learner's work attached)` : ""}`);
 		} else if (role === "assistant") {
 			const assistant = m as AssistantMessage;
 			const blocks: string[] = [];

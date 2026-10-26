@@ -30,6 +30,7 @@ import {
 	type LhViewMessage,
 	type LiveExecution,
 	type QuestionAnswerData,
+	type ImageRef,
 	type UserVoiceInput,
 } from "../src/core";
 
@@ -574,12 +575,12 @@ export class SessionModel {
 		// write-ahead will persist (inputAppends), with LOCAL ids so
 		// adoption can tell them from the record's absorbed copies.
 		const optimistic: LhMessage[] = [];
-		if (input.type === "text") optimistic.push({ ...newUserMessage(input.text, input.voice), id: localId() });
+		if (input.type === "text") optimistic.push({ ...newUserMessage(input.text, input.voice, input.images), id: localId() });
 		else if (input.type === "thinking") {
 			// The practice submissions (2026-10-04): the marker lands
 			// optimistically — the card renders from its details the
 			// moment the button fires.
-			optimistic.push({ ...newThinkingMessage(input.problemCallId, input.text, input.spoken), id: localId() });
+			optimistic.push({ ...newThinkingMessage(input.problemCallId, input.text, input.spoken, input.images), id: localId() });
 		} else if (input.type === "next") {
 			// The move-on signal (owner round 16): the NEXT PROBLEM line
 			// renders the instant the chip/Enter fires.
@@ -648,13 +649,14 @@ export class SessionModel {
 	 *  settled mid-send (the race): fall back to the plain text send —
 	 *  the entry is dropped and send() pushes its own optimistic card.
 	 */
-	async steer(text: string, voice?: UserVoiceInput): Promise<void> {
+	async steer(text: string, voice?: UserVoiceInput, images?: ImageRef[]): Promise<void> {
 		const t = text.trim();
 		const spoken = voice?.spoken.trim() ? voice : undefined;
-		if (!t && !spoken) return;
+		if (!t && !spoken && !images) return;
 		const id = `steer_${localId()}`;
 		// The queued line never shows a transcript (voice-everywhere wave).
-		const line = spoken ? (t ? `${t} · 🎙` : "🎙 Voice message") : t;
+		const said = spoken ? (t ? `${t} · 🎙` : "🎙 Voice message") : t;
+		const line = images ? (said ? `${said} · ${images.length} 🖼` : `${images.length} 🖼`) : said;
 		this.steerQueueValue = [...this.steerQueueValue, { id, text: line }];
 		this.onChange?.();
 		const dropSteer = () => {
@@ -665,12 +667,15 @@ export class SessionModel {
 			const res = await this.fetch(`/api/chats/${this.chatId}/steer`, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ input: { type: "steer", id, text: t, ...(spoken ? { voice: spoken } : {}) } }),
+				body: JSON.stringify({
+					input: { type: "steer", id, text: t, ...(spoken ? { voice: spoken } : {}), ...(images ? { images } : {}) },
+				}),
 			});
 			if (res.ok) return; // parked or delivered — the stream lands the card
 			if (res.status === 409) {
 				dropSteer();
-				await this.send({ type: "text", text: t, ...(spoken ? { voice: spoken } : {}) }); // the settle race: plain send
+				// the settle race: plain send
+				await this.send({ type: "text", text: t, ...(spoken ? { voice: spoken } : {}), ...(images ? { images } : {}) });
 				return;
 			}
 			dropSteer();
