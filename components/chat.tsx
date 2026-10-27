@@ -70,6 +70,7 @@ import type { ArtifactPartProps, JobRecord, Phase3, QuestionAnswerData, Question
 import type { LhViewMessage } from "@/src/core";
 import { PhaseChip, PhaseDivider } from "@/components/phase-divider";
 import { SessionKindChip } from "@/components/session-kind-chip";
+import { SessionModeSwitch } from "@/components/session-mode-switch";
 import {
 	CompactionCutDivider,
 	CompactionMomentDivider,
@@ -1436,6 +1437,7 @@ export function Chat({
 					    Teaching keeps its phase label beside it; practice has no
 					    phase arc. */}
 					<SessionKindChip kind={kind} />
+					{messages.length > 0 && <SessionModeSwitch chatId={chatId} kind={kind} />}
 					{kind === "practice" && <PracticeFormatChip chatId={chatId} value={practice} onChange={setPractice} />}
 					{kind === "teach" && <PhaseChip phase={phases.at(-1) ?? "probe"} />}
 				</TopBar>
