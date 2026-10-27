@@ -27,7 +27,7 @@
  * EXPAND icon (opens the session overlay) when a chat page is mounted.
  */
 
-import { cloneElement, isValidElement, useEffect, useRef, useState, type ComponentProps, type ReactNode } from "react";
+import { cloneElement, isValidElement, useEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from "react";
 import { CheckIcon, CopyIcon, MaximizeIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -39,6 +39,8 @@ import {
 import type { ExtraProps } from "streamdown";
 import { MERMAID_FONT_SIZE, renderMermaid } from "@/components/mermaid-render";
 import { MermaidError } from "@/components/mermaid-error";
+import { buildInlineVisualSrcDoc, inlineVisualKind, readVisualTheme, type InlineVisualKind } from "@/components/inline-visual";
+import { INITIAL_DEMO_BRIDGE_STATE, reduceDemoBridgeState, type DemoBridgeState } from "@/components/artifacts/demo-card";
 import { blurAfterPointerClick } from "@/components/focus-hygiene";
 import { chartSize, useSessionMermaid } from "@/components/session-overlay";
 import { Hint } from "@/components/ui/hint";
@@ -226,6 +228,51 @@ function MermaidInline({ chart }: { chart: string }) {
 	);
 }
 
+/** An ```html / ```svg fence rendered in place (inline visuals): a quiet
+ *  placeholder while the fence streams, then the sandboxed, themed frame —
+ *  allow-scripts only, so it can never touch the app's storage or DOM. */
+function InlineVisual({ source, kind }: { source: string; kind: InlineVisualKind }) {
+	const incomplete = useIsCodeFenceIncomplete();
+	const iframeRef = useRef<HTMLIFrameElement>(null);
+	const [bridge, setBridge] = useState<DemoBridgeState>(INITIAL_DEMO_BRIDGE_STATE);
+	const srcDoc = useMemo(() => (incomplete ? "" : buildInlineVisualSrcDoc(source, kind, readVisualTheme())), [incomplete, source, kind]);
+	useEffect(() => {
+		const onMessage = (event: MessageEvent) => {
+			if (!iframeRef.current || event.source !== iframeRef.current.contentWindow) return;
+			setBridge((prev) => reduceDemoBridgeState(prev, event.data));
+		};
+		window.addEventListener("message", onMessage);
+		return () => window.removeEventListener("message", onMessage);
+	}, []);
+	if (incomplete) {
+		return (
+			<div data-testid="md-visual-pending" className="my-4 rounded-lg border border-dashed p-4 text-xs text-muted-foreground" aria-busy="true">
+				Drawing…
+			</div>
+		);
+	}
+	return (
+		<div data-testid="md-visual" className="group/md relative my-4">
+			<CopyCorner className="absolute top-1.5 right-2 z-10" getText={() => source} label="Copy visual source" />
+			<iframe
+				ref={iframeRef}
+				title="Visual"
+				sandbox="allow-scripts"
+				srcDoc={srcDoc}
+				scrolling="no"
+				className="w-full rounded-lg border"
+				style={{ height: bridge.height ?? 240, boxSizing: "content-box" }}
+				data-testid="md-visual-frame"
+			/>
+			{bridge.error && (
+				<p role="alert" className="mt-1 truncate font-mono text-xs text-red-500" title={bridge.error}>
+					This visual threw an error: {bridge.error}
+				</p>
+			)}
+		</div>
+	);
+}
+
 /** The Streamdown `code` override: inline code passes through with the
  *  house inline classes; block fences split — mermaid renders as the bare
  *  chart above, everything else delegates to streamdown's exported
@@ -251,6 +298,8 @@ export function MarkdownCode(props: ComponentProps<"code"> & ExtraProps) {
 	const source = codeSource(children);
 
 	if (language === "mermaid") return <MermaidInline chart={source} />;
+	const visualKind = inlineVisualKind(language, source);
+	if (visualKind) return <InlineVisual source={source} kind={visualKind} />;
 
 	const startMatch = /startLine=(\d+)/.exec(meta);
 	const startLine = startMatch ? Number.parseInt(startMatch[1]!, 10) : undefined;

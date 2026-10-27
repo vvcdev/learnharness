@@ -34,6 +34,7 @@ describe("the chat agent", () => {
 			"shared/30-learner-files.md",
 			"shared/40-formatting.md",
 			"shared/45-desmos.md",
+			"shared/46-inline-visuals.md",
 		]);
 		assert.match(composeInstructions("chat"), /running a \*\*chat\*\* session/);
 	});
