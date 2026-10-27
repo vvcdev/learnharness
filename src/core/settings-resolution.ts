@@ -230,6 +230,14 @@ export function extractionEnabled(graph: { enabled: boolean }): boolean {
 	return graph.enabled;
 }
 
+/** Which session kinds write to the graph (owner, 2026-10-27): teaching and
+ *  chat (the agent's explanatory prose is the source); practice never does —
+ *  it re-exercises propositions already in the graph, and the graph stays
+ *  learner-state-free. Absent kind reads as teach. */
+export function sessionExtractsToGraph(kind: "teach" | "practice" | "chat" | undefined): boolean {
+	return kind !== "practice";
+}
+
 /**
  * The RENDERING gate (owner, 2026-10-06): graph off = the home shows the
  * chains view, not the canvas. Display-only by construction — every data

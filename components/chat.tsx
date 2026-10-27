@@ -1431,7 +1431,7 @@ export function Chat({
 					{/* Practice (owner, 2026-10-04): the coverage ring hides —
 				    practice never extracts, so an ever-filling ring with no
 				    run behind it would lie. */}
-					{kind === "teach" && <CoverageRing chatId={chatId} refreshKey={coverageTick} />}
+					{(kind === "teach" || kind === "chat") && <CoverageRing chatId={chatId} refreshKey={coverageTick} />}
 					{/* The category chip (owner, 2026-10-25): TEACHING / PRACTICE,
 					    colored and clickable — opens the sidebar on that section.
 					    Teaching keeps its phase label beside it; practice has no

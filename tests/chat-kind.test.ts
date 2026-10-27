@@ -44,3 +44,13 @@ describe("session kind (practice sessions, 2026-10-04)", () => {
 		assert.equal(listed?.kind, "teach");
 	});
 });
+
+describe("which sessions write to the graph (2026-10-27)", () => {
+	it("teaching and chat extract; practice never does", async () => {
+		const { sessionExtractsToGraph } = await import("../src/core/settings-resolution.ts");
+		assert.equal(sessionExtractsToGraph(undefined), true, "absent kind reads as teach");
+		assert.equal(sessionExtractsToGraph("teach"), true);
+		assert.equal(sessionExtractsToGraph("chat"), true);
+		assert.equal(sessionExtractsToGraph("practice"), false);
+	});
+});

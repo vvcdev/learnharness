@@ -37,6 +37,7 @@ import { searchAvailable, searchProvider } from "./search.ts";
 import { providerKeyPresent } from "./keys.ts";
 import {
 	extractionEnabled,
+	sessionExtractsToGraph,
 	graphToolsEnabled,
 	resolveConversationSpec,
 	resolveRoleSpec,
@@ -584,8 +585,10 @@ export async function handleChatInput(
 				// extraction, its auditor — dies with the master switch.
 				// PRACTICE (owner, 2026-10-04): practice sessions write nothing —
 				// no extraction, no graph, no coverage (v1: the session itself
-				// is the deliverable).
-				if ((!requestCycle || requestCycle.dispatched) && record.kind !== "practice" && record.kind !== "chat" && extractionEnabled(effective.graph)) {
+				// is the deliverable). CHAT sessions extract like teaching
+				// (owner, 2026-10-27): the agent's explanatory prose is the
+				// source, born into the session's own cluster.
+				if ((!requestCycle || requestCycle.dispatched) && sessionExtractsToGraph(record.kind) && extractionEnabled(effective.graph)) {
 					// Fresh per-turn read of the graph section's chunk budget
 					// (extraction-UX redesign, 2026-09-24): the trigger compares
 					// against it and the pipeline's batches share it.
