@@ -49,6 +49,19 @@ export { saveLessonSources, removeSessionSources } from "./session-sources.ts";
 export { stageUploads, claimUploads, removeUploadBatch, stagedUploadPath } from "./uploads.ts";
 export { fetchYoutubeSource, YoutubeError } from "./youtube.ts";
 export { readFolders, updateFolders, unplaceChat } from "../store/folders.ts";
+export { readMistakes } from "../store/mistakes.ts";
+export {
+	analysisEngineOverride,
+	analysisProgress,
+	cancelAnalyses,
+	countNewMistakes,
+	deleteMistake,
+	enqueueAnalyses,
+	mistakesAfterTurn,
+	recordAllMistakes,
+	recordChatMistakes,
+	retryMistake,
+} from "./mistakes.ts";
 export { sourceOutline, applySourceScope, writePdfPageLimit, renderPdfPreviewPage } from "./source-scope.ts";
 export { saveChatImages, readChatImage, chatImageMimeType } from "./chat-images.ts";
 export {

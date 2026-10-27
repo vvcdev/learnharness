@@ -221,6 +221,7 @@ export const ROLE_SLOT: Readonly<Record<ModelRole, ModelSlotName>> = {
 	prober: "strong",
 	teacher: "strong",
 	researcher: "cheap",
+	analyst: "cheap",
 	demoBuilder: "cheap",
 	extractor: "cheap",
 	auditor: "cheap",
