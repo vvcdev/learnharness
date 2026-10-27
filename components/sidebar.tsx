@@ -17,7 +17,7 @@ import {
 	useOpenFolders,
 	type FolderSelection,
 } from "@/components/sidebar-folders";
-import { CheckSquareIcon, DumbbellIcon, FolderIcon, FolderPlusIcon, MessageCircleIcon, PanelLeftCloseIcon, PanelLeftOpenIcon, PlusIcon, SearchIcon, SettingsIcon } from "lucide-react";
+import { CheckSquareIcon, CircleXIcon, DumbbellIcon, FolderIcon, FolderPlusIcon, MessageCircleIcon, PanelLeftCloseIcon, PanelLeftOpenIcon, PlusIcon, SearchIcon, SettingsIcon } from "lucide-react";
 import { ActivitySection } from "@/components/activity-dock";
 import { CoverageMenuBlock } from "@/components/extraction-coverage";
 import { LhMark } from "@/components/lh-mark";
@@ -913,6 +913,19 @@ function SessionsSidebar() {
 						<FolderIcon className="size-3" />
 						Projects
 						<span className="sr-only">manage saved project packs</span>
+					</button>
+					<button
+						type="button"
+						data-testid="mistakes-entry"
+						onClick={() => router.push("/mistakes")}
+						className={cn(
+							"flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-xs uppercase tracking-wider transition-colors hover:bg-accent hover:text-foreground",
+							pathname === "/mistakes" ? "bg-accent text-foreground" : "text-muted-foreground",
+						)}
+					>
+						<CircleXIcon className="size-3" />
+						Mistakes
+						<span className="sr-only">review your mistakes with short analyses</span>
 					</button>
 				</div>
 
