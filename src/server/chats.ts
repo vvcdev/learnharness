@@ -10,6 +10,7 @@ import { removeSessionSources } from "./session-sources.ts";
 import { removeChatImages } from "./chat-images.ts";
 import { clearTurnFailure } from "./turn-runs.ts";
 import { discardChatDeliveries } from "./jobs.ts";
+import { unplaceChat } from "../store/folders.ts";
 
 /**
  * Server-side chat entries for the transport layer (app/api/chats*,
@@ -133,6 +134,7 @@ export async function deleteChatSession(chatId: string, mode: ChatDeleteMode): P
 		clearTurnFailure(chatId);
 		removeSessionSources(chatId);
 		removeChatImages(chatId);
+		unplaceChat(chatId);
 	}
 	return { ok: true, mode, stats, jobsRemoved, graphRevision: graphRevision() };
 }

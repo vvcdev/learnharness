@@ -90,4 +90,5 @@ export * from "./coverage.ts";
 export * from "./session-markdown.ts";
 export * from "./lesson-sources.ts";
 export * from "./mode-switch.ts";
+export * from "./folders.ts";
 export * from "./projects.ts";
