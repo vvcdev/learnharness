@@ -27,6 +27,8 @@ describe("the chat agent", () => {
 		const paths = listSourceSegments("chat").map((s) => s.path);
 		assert.deepEqual(paths, [
 			"chat/00-base.md",
+			"chat/10-method.md",
+			"chat/20-material-kinds.md",
 			"shared/10-voice.md",
 			"shared/15-accuracy.md",
 			"shared/30-learner-files.md",
