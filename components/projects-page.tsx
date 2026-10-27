@@ -10,7 +10,7 @@ import {
 	projectNameError,
 } from "@/src/core";
 import { SidebarToggle } from "@/components/sidebar";
-import { stagePickedFiles, type AttachedSource } from "@/components/source-attach";
+import { stagePickedFiles, stageYoutube, YoutubeLinkForm, type AttachedSource } from "@/components/source-attach";
 
 async function loadList(): Promise<{ activeId: string | null; projects: ProjectSummary[] }> {
 	const res = await fetch("/api/projects", { cache: "no-store" });
@@ -223,6 +223,7 @@ export function ProjectPackForm({
 	const [instructions, setInstructions] = useState(initial?.instructions ?? "");
 	const [existing, setExisting] = useState(initial?.files ?? []);
 	const [incoming, setIncoming] = useState<AttachedSource[]>([]);
+	const [linking, setLinking] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [busy, setBusy] = useState(false);
 	const fileInputRef = useRef<HTMLInputElement>(null);
@@ -323,6 +324,13 @@ export function ProjectPackForm({
 					>
 						Add files
 					</button>
+					<button
+						type="button"
+						onClick={() => setLinking((open) => !open)}
+						className="text-xs text-muted-foreground hover:text-foreground"
+					>
+						Add YouTube link
+					</button>
 					<input
 						ref={fileInputRef}
 						type="file"
@@ -345,6 +353,18 @@ export function ProjectPackForm({
 						}}
 					/>
 				</div>
+				{linking && (
+					<YoutubeLinkForm
+						onClose={() => setLinking(false)}
+						onSubmit={async (url) => {
+							const picked = await stageYoutube(incoming, url, existing.length);
+							if (picked.error) return picked.error;
+							setIncoming(picked.files);
+							setError(null);
+							return null;
+						}}
+					/>
+				)}
 				{(existing.length > 0 || incoming.length > 0) ? (
 					<div className="flex flex-wrap gap-1.5">
 						{existing.map((file) => (
@@ -370,7 +390,7 @@ export function ProjectPackForm({
 						))}
 					</div>
 				) : (
-					<p className="text-xs text-muted-foreground">Optional. PDFs, Word, PowerPoint, Excel, text, code, data, or images.</p>
+					<p className="text-xs text-muted-foreground">Optional. PDFs, Word, PowerPoint, Excel, text, code, data, images, or a YouTube link (its transcript).</p>
 				)}
 			</div>
 			{error && <p role="alert" className="text-xs text-red-400">{error}</p>}

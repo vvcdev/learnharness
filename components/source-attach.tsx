@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState, type ReactNode } from "react";
-import { FolderIcon, PaperclipIcon, XIcon } from "lucide-react";
+import { FolderIcon, LinkIcon, PaperclipIcon, XIcon } from "lucide-react";
 import { appendProjectContext, LESSON_SOURCE_ACCEPT, lessonSourceError, scopeChipLabel, scopeKindFor, type SourceScope } from "@/src/core";
 import { SourceScopePicker } from "@/components/source-scope-picker";
 import { cn } from "@/lib/utils";
@@ -106,6 +106,89 @@ export async function stagePickedFiles(
 		});
 	});
 	return { files: next, error: null };
+}
+
+/** Add a YouTube video as a source: the server stages its transcript as a
+ *  markdown file, which then rides every path a picked file does. */
+export async function stageYoutube(
+	current: readonly AttachedSource[],
+	url: string,
+	/** How many files already live on the project/session besides `current`. */
+	already = 0,
+): Promise<{ files: AttachedSource[]; error: string | null }> {
+	const next = [...current];
+	const reason = lessonSourceError("video.md", 1, already + next.length);
+	if (reason) return { files: next, error: reason };
+	const response = await fetch("/api/uploads/youtube", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ url }),
+	}).catch(() => null);
+	if (!response) return { files: next, error: "Could not reach the app. Try again." };
+	const payload = (await response.json().catch(() => ({}))) as {
+		id?: string;
+		files?: { name: string; stored: string }[];
+		size?: number;
+		error?: string;
+	};
+	const file = payload.files?.[0];
+	if (!response.ok || !payload.id || !file) return { files: next, error: payload.error || "Could not read that video." };
+	next.push({ name: file.name, size: payload.size ?? 0, batchId: payload.id, stored: file.stored });
+	return { files: next, error: null };
+}
+
+/** A link button + URL field that stages a YouTube transcript. `children`
+ *  renders the trigger (so the composer and the projects page can style it). */
+export function YoutubeLinkForm({
+	onSubmit,
+	onClose,
+	className,
+}: {
+	onSubmit: (url: string) => Promise<string | null>;
+	onClose: () => void;
+	className?: string;
+}) {
+	const [url, setUrl] = useState("");
+	const [busy, setBusy] = useState(false);
+	const [error, setError] = useState<string | null>(null);
+	return (
+		<form
+			data-testid="youtube-form"
+			className={cn("flex flex-col gap-1", className)}
+			onSubmit={(event) => {
+				event.preventDefault();
+				if (!url.trim() || busy) return;
+				setBusy(true);
+				setError(null);
+				void onSubmit(url.trim()).then((failure) => {
+					setBusy(false);
+					if (failure) setError(failure);
+					else onClose();
+				});
+			}}
+		>
+			<div className="flex items-center gap-1.5">
+				<input
+					autoFocus
+					value={url}
+					onChange={(event) => setUrl(event.target.value)}
+					onKeyDown={(event) => {
+						if (event.key === "Escape") onClose();
+					}}
+					placeholder="Paste a YouTube link"
+					aria-label="YouTube link"
+					className="lh-input min-w-0 flex-1 rounded-md border bg-background px-2 py-1 text-xs outline-none focus:border-ring"
+				/>
+				<button type="submit" disabled={busy || !url.trim()} className="rounded-md border px-2 py-1 text-xs hover:bg-accent disabled:opacity-40">
+					{busy ? "Reading…" : "Add"}
+				</button>
+				<button type="button" aria-label="Cancel" onClick={onClose} className="text-muted-foreground hover:text-foreground">
+					<XIcon className="size-3" />
+				</button>
+			</div>
+			{error && <p role="alert" className="text-xs text-red-400">{error}</p>}
+		</form>
+	);
 }
 
 export async function uploadLessonSources(chatId: string, all: readonly AttachedSource[]): Promise<string[]> {
@@ -248,11 +331,14 @@ export function SourceAttachButton({
 	onChange,
 	onError,
 	onImages,
+	onLinkToggle,
 }: {
 	files: readonly AttachedSource[];
 	disabled?: boolean;
 	onChange: (files: AttachedSource[]) => void;
 	onError: (error: string | null) => void;
+	/** Opens / closes the YouTube link field (SourcePicker owns it). */
+	onLinkToggle?: () => void;
 	/** In a live session (owner 2026-10-26): picked images go to the model
 	 *  as pictures with the message; everything else stays a lesson source. */
 	onImages?: (files: File[]) => void;
@@ -260,6 +346,16 @@ export function SourceAttachButton({
 	const inputRef = useRef<HTMLInputElement>(null);
 	return (
 		<>
+			<button
+				type="button"
+				aria-label="Add a YouTube link"
+				data-testid="attach-youtube"
+				disabled={disabled}
+				onClick={onLinkToggle}
+				className="flex size-10 shrink-0 items-center justify-center rounded-[10px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-40"
+			>
+				<LinkIcon className="size-4" />
+			</button>
 			<button
 				type="button"
 				aria-label="Attach sources"
@@ -317,11 +413,32 @@ export function SourcePicker({
 	/** When set, only the paperclip is returned so the parent can place it in the text row. */
 	row?: (attach: ReactNode) => ReactNode;
 }) {
+	const [linking, setLinking] = useState(false);
 	const attach = (
-		<SourceAttachButton files={files} disabled={disabled} onChange={onChange} onError={onError} onImages={onImages} />
+		<SourceAttachButton
+			files={files}
+			disabled={disabled}
+			onChange={onChange}
+			onError={onError}
+			onImages={onImages}
+			onLinkToggle={() => setLinking((open) => !open)}
+		/>
 	);
 	return (
 		<>
+			{linking && (
+				<div className="px-1.5 pb-1">
+					<YoutubeLinkForm
+						onClose={() => setLinking(false)}
+						onSubmit={async (url) => {
+							const picked = await stageYoutube(files, url);
+							onChange(picked.files);
+							onError(picked.error);
+							return picked.error;
+						}}
+					/>
+				</div>
+			)}
 			<SourceChips files={files} onChange={onChange} error={error} />
 			{row ? row(attach) : attach}
 		</>
