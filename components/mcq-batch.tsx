@@ -193,7 +193,7 @@ export function McqBatchDock({
 
 /** The answered batch in the transcript: the reveal walk, one question at
  *  a time, ending on the summary (score + the misses, each a jump). */
-export function McqBatchCard({ answer, input }: { answer: QuestionAnswerData; input: unknown }) {
+export function McqBatchCard({ answer, input, mistakeIdBase }: { answer: QuestionAnswerData; input: unknown; /** `<chatId>:<toolCallId>` — item i's analysis lives at `<base>#i`. */ mistakeIdBase?: string }) {
 	const items = answer.batch ?? [];
 	const questions = (input as { questions?: unknown[] } | null)?.questions ?? [];
 	const [step, setStep] = useState(0);
@@ -259,7 +259,7 @@ export function McqBatchCard({ answer, input }: { answer: QuestionAnswerData; in
 					<div className="mt-3 text-xs text-muted-foreground">Press Enter or Next for the next batch.</div>
 				</div>
 			) : (
-				<AnsweredCard key={step} answer={items[step]!} input={questions[step]} />
+				<AnsweredCard key={step} answer={items[step]!} input={questions[step]} mistakeId={mistakeIdBase ? `${mistakeIdBase}#${step}` : undefined} />
 			)}
 		</div>
 	);

@@ -1,7 +1,9 @@
 "use client";
 
 import { ImageThumbs } from "@/components/learner-images";
-import { useState } from "react";
+import { useContext, useState } from "react";
+import { MistakesContext } from "@/components/mistakes-context";
+import { ERROR_TYPE_LABELS } from "@/src/core";
 import { ConfidenceRail } from "@/components/confidence-rail";
 import { GlyphMark } from "@/components/ui/glyph-mark";
 import { ThinkingBlock } from "@/components/thinking-block";
@@ -20,8 +22,18 @@ import { answerForPresentation, parseAskInput, parseQuizInput } from "@/src/core
  * client — the card reveals his answer, the committed correct answer, and
  * the explanation, with NO verdict chips (owner ruling 2026-09-27).
  */
-export function AnsweredCard({ answer: savedAnswer, input }: { answer: QuestionAnswerData; input?: unknown }) {
+export function AnsweredCard({
+	answer: savedAnswer,
+	input,
+	mistakeId,
+}: {
+	answer: QuestionAnswerData;
+	input?: unknown;
+	/** `<chatId>:<toolCallId>` — where this answer's recorded analysis lives. */
+	mistakeId?: string;
+}) {
 	const answer = answerForPresentation(savedAnswer, input);
+	const mistake = useContext(MistakesContext).get(mistakeId ?? "");
 	const [whyOpen, setWhyOpen] = useState(false); // the tucked explanation (predictions, owner 2026-10-03)
 	if (answer.dismissed) {
 		return (
@@ -217,6 +229,31 @@ export function AnsweredCard({ answer: savedAnswer, input }: { answer: QuestionA
 			{/* px-3→removed: card p-4 + box px-3 double-inset sat the "Why" label deeper
 			    than the option box edges (owner, round 3). Sides flush with everything
 			    else; py-2 stays for vertical air. */}
+			{/* The short why on a miss (owner, 2026-10-27): the error-analysis
+			    skill's diagnosis — error type, what the pick implies, what is
+			    right, one reusable rule. Lands a few seconds after the reveal. */}
+			{mistake?.status === "ready" && mistake.analysis && (
+				<div className="mt-3 rounded-lg border border-border/60 px-3 py-2.5 text-sm" data-testid="mistake-why">
+					<div className="flex items-center gap-2 text-xs">
+						<span className="rounded-sm bg-accent px-1.5 py-0.5 font-medium text-foreground" data-testid="mistake-why-type">
+							{ERROR_TYPE_LABELS[mistake.analysis.errorType]}
+						</span>
+						<span className="text-muted-foreground">{mistake.analysis.topic}</span>
+					</div>
+					<ToolContentResponse className="mt-1.5 text-foreground">{mistake.analysis.whatYouDid}</ToolContentResponse>
+					<ToolContentResponse className="mt-1 text-foreground">{mistake.analysis.correct}</ToolContentResponse>
+					<div className="mt-1.5 text-foreground">
+						<span className="font-medium text-muted-foreground">Next time: </span>
+						<ToolContentResponse className="inline [&>p:first-child]:inline [&>p:first-child]:m-0">{mistake.analysis.rule}</ToolContentResponse>
+					</div>
+				</div>
+			)}
+			{mistake?.status === "pending" && (
+				<div className="mt-3 text-xs text-muted-foreground" data-testid="mistake-why-pending">
+					Working out why…
+				</div>
+			)}
+
 			{isQuiz && answer.explanation && (
 				/* The TUCKED explanation — ALL questions (owner, 2026-10-07): the
 				   verdict shows, the explanation sits collapsed behind the Why

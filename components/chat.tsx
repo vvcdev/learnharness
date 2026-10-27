@@ -71,6 +71,7 @@ import type { LhViewMessage } from "@/src/core";
 import { PhaseChip, PhaseDivider } from "@/components/phase-divider";
 import { SessionKindChip } from "@/components/session-kind-chip";
 import { SessionModeSwitch } from "@/components/session-mode-switch";
+import { MistakesContext, useChatMistakes } from "@/components/mistakes-context";
 import {
 	CompactionCutDivider,
 	CompactionMomentDivider,
@@ -1150,6 +1151,8 @@ export function Chat({
 		firstFetchRef.current = jobStatusRef.current.size === 0;
 		void fetchJobs();
 	}, [fetchJobs]); // identity changes exactly on chatId
+	// The recorded analyses for this session's answer cards (owner, 2026-10-27).
+	const sessionMistakes = useChatMistakes(chatId);
 	useServerEvent("jobs-changed", (p) => {
 		if (p.chatId != null && p.chatId !== chatId) return; // ours or unattributed
 		if (fetchDebounceRef.current) clearTimeout(fetchDebounceRef.current);
@@ -1305,6 +1308,7 @@ export function Chat({
 	};
 
 	return (
+		<MistakesContext.Provider value={sessionMistakes}>
 		<ImageInputContext.Provider value={imageInput}>
 		<ChatActionsContext.Provider
 			value={{
@@ -1654,7 +1658,7 @@ export function Chat({
 														// transcript; answered ones render as graded records.
 														if (part.state === "output-available") {
 															return (
-																<AnsweredCard key={pi} answer={part.output as QuestionAnswerData} input={part.input} />
+																<AnsweredCard key={pi} answer={part.output as QuestionAnswerData} input={part.input} mistakeId={`${chatId}:${part.toolCallId}`} />
 															);
 														}
 														return null;
@@ -1662,7 +1666,7 @@ export function Chat({
 													case "tool-mcq_batch": {
 														// The batch's reveal walk + summary (owner 2026-10-26).
 														if (part.state === "output-available") {
-															return <McqBatchCard key={pi} answer={part.output as QuestionAnswerData} input={part.input} />;
+															return <McqBatchCard key={pi} answer={part.output as QuestionAnswerData} input={part.input} mistakeIdBase={`${chatId}:${part.toolCallId}`} />;
 														}
 														return null;
 													}
@@ -1931,6 +1935,7 @@ export function Chat({
 		/>
 		</ChatActionsContext.Provider>
 		</ImageInputContext.Provider>
+		</MistakesContext.Provider>
 	);
 }
 
