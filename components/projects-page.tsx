@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CheckIcon, FolderPlusIcon, TrashIcon } from "lucide-react";
 import {
+	isOversizePdf,
 	LESSON_SOURCE_ACCEPT,
 	type ProjectDetail,
 	type ProjectSummary,
@@ -11,6 +12,7 @@ import {
 } from "@/src/core";
 import { SidebarToggle } from "@/components/sidebar";
 import { stagePickedFiles, stageYoutube, YoutubeLinkForm, type AttachedSource } from "@/components/source-attach";
+import { PdfSplitter } from "@/components/pdf-splitter";
 
 async function loadList(): Promise<{ activeId: string | null; projects: ProjectSummary[] }> {
 	const res = await fetch("/api/projects", { cache: "no-store" });
@@ -224,6 +226,9 @@ export function ProjectPackForm({
 	const [existing, setExisting] = useState(initial?.files ?? []);
 	const [incoming, setIncoming] = useState<AttachedSource[]>([]);
 	const [linking, setLinking] = useState(false);
+	/** The PDF open in the manual splitter (an oversized pick, or Split a PDF…). */
+	const [splitting, setSplitting] = useState<File | null>(null);
+	const splitInputRef = useRef<HTMLInputElement>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [busy, setBusy] = useState(false);
 	const fileInputRef = useRef<HTMLInputElement>(null);
@@ -326,6 +331,27 @@ export function ProjectPackForm({
 					</button>
 					<button
 						type="button"
+						data-testid="split-pdf"
+						onClick={() => splitInputRef.current?.click()}
+						className="text-xs text-muted-foreground hover:text-foreground"
+					>
+						Split a PDF…
+					</button>
+					<input
+						ref={splitInputRef}
+						type="file"
+						accept=".pdf,application/pdf"
+						data-testid="split-pdf-input"
+						className="sr-only"
+						tabIndex={-1}
+						onChange={(e) => {
+							const f = Array.from(e.target.files ?? [])[0];
+							e.target.value = "";
+							if (f) setSplitting(f);
+						}}
+					/>
+					<button
+						type="button"
 						onClick={() => setLinking((open) => !open)}
 						className="text-xs text-muted-foreground hover:text-foreground"
 					>
@@ -341,8 +367,13 @@ export function ProjectPackForm({
 						onChange={(e) => {
 							// Copy BEFORE clearing the input: resetting its value empties
 							// the live FileList in Chrome, and nothing would upload.
-							const list = Array.from(e.target.files ?? []);
+							const picked = Array.from(e.target.files ?? []);
 							e.target.value = "";
+							// An oversized PDF opens the splitter instead of the size
+							// error (one at a time; the rest stage as usual).
+							const big = picked.find((f) => isOversizePdf(f.name, f.size));
+							if (big) setSplitting(big);
+							const list = big ? picked.filter((f) => f !== big) : picked;
 							if (list.length === 0) return;
 							void stagePickedFiles(incoming, list, existing.length).then((picked) => {
 								if (picked.error) {
@@ -392,9 +423,22 @@ export function ProjectPackForm({
 						))}
 					</div>
 				) : (
-					<p className="text-xs text-muted-foreground">Optional. PDFs, Word, PowerPoint, Excel, text, code, data, images, or a YouTube link (its transcript).</p>
+					<p className="text-xs text-muted-foreground">Optional. PDFs, Word, PowerPoint, Excel, text, code, data, images, or a YouTube link (its transcript). A PDF over 25 MB can be split into parts.</p>
 				)}
 			</div>
+			{splitting && (
+				<PdfSplitter
+					file={splitting}
+					onCancel={() => setSplitting(null)}
+					onDone={(parts) => {
+						setSplitting(null);
+						void stagePickedFiles(incoming, parts, existing.length).then((picked) => {
+							setIncoming(picked.files);
+							setError(picked.error);
+						});
+					}}
+				/>
+			)}
 			{error && <p role="alert" className="text-xs text-red-400">{error}</p>}
 			<div className="flex justify-end gap-2 pt-1">
 				{onCancel && (

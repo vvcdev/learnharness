@@ -12,6 +12,11 @@ const nextConfig: NextConfig = {
 	// The manual copies the docs require — public/ and .next/static — are
 	// done by scripts/build-server.mjs.
 	output: "standalone",
+	// UPLOAD SIZE (owner, 2026-10-28): the request proxy buffers every /api
+	// request body, and Next truncates it at 10 MB by default — any upload
+	// batch over 10 MB failed to parse ("Failed to parse body as FormData").
+	// A batch can hold 8 sources of up to 25 MB each, so allow that.
+	experimental: { proxyClientMaxBodySize: "220mb" },
 	// SAFETY (empirically verified 2026-09-17): without this, output file
 	// tracing sweeps the repo's real data/ — chat records, graph ledgers —
 	// INTO the standalone bundle. A shipped desktop app would carry the

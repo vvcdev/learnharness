@@ -2,8 +2,9 @@
 
 import { useRef, useState, type ReactNode } from "react";
 import { FolderIcon, LinkIcon, PaperclipIcon, XIcon } from "lucide-react";
-import { appendProjectContext, LESSON_SOURCE_ACCEPT, lessonSourceError, scopeChipLabel, scopeKindFor, type SourceScope } from "@/src/core";
+import { appendProjectContext, isOversizePdf, LESSON_SOURCE_ACCEPT, lessonSourceError, scopeChipLabel, scopeKindFor, type SourceScope } from "@/src/core";
 import { SourceScopePicker } from "@/components/source-scope-picker";
+import { PdfSplitter } from "@/components/pdf-splitter";
 import { cn } from "@/lib/utils";
 import { isImageFile } from "@/components/learner-images";
 
@@ -332,6 +333,7 @@ export function SourceAttachButton({
 	onError,
 	onImages,
 	onLinkToggle,
+	onSplit,
 }: {
 	files: readonly AttachedSource[];
 	disabled?: boolean;
@@ -339,6 +341,8 @@ export function SourceAttachButton({
 	onError: (error: string | null) => void;
 	/** Opens / closes the YouTube link field (SourcePicker owns it). */
 	onLinkToggle?: () => void;
+	/** An oversized PDF was picked: open the manual splitter on it. */
+	onSplit?: (file: File) => void;
 	/** In a live session (owner 2026-10-26): picked images go to the model
 	 *  as pictures with the message; everything else stays a lesson source. */
 	onImages?: (files: File[]) => void;
@@ -379,7 +383,14 @@ export function SourceAttachButton({
 					event.target.value = "";
 					const images = onImages ? all.filter(isImageFile) : [];
 					if (images.length > 0) onImages!(images);
-					const rest = all.filter((file) => !images.includes(file));
+					let rest = all.filter((file) => !images.includes(file));
+					// An oversized PDF opens the splitter instead of the size error
+					// (one at a time; the rest stage as usual).
+					const big = onSplit ? rest.find((f) => isOversizePdf(f.name, f.size)) : undefined;
+					if (big) {
+						onSplit!(big);
+						rest = rest.filter((f) => f !== big);
+					}
 					if (rest.length === 0) return;
 					const list = new DataTransfer();
 					for (const file of rest) list.items.add(file);
@@ -414,6 +425,7 @@ export function SourcePicker({
 	row?: (attach: ReactNode) => ReactNode;
 }) {
 	const [linking, setLinking] = useState(false);
+	const [splitting, setSplitting] = useState<File | null>(null);
 	const attach = (
 		<SourceAttachButton
 			files={files}
@@ -422,10 +434,24 @@ export function SourcePicker({
 			onError={onError}
 			onImages={onImages}
 			onLinkToggle={() => setLinking((open) => !open)}
+			onSplit={setSplitting}
 		/>
 	);
 	return (
 		<>
+			{splitting && (
+				<PdfSplitter
+					file={splitting}
+					onCancel={() => setSplitting(null)}
+					onDone={(parts) => {
+						setSplitting(null);
+						void stagePickedFiles(files, parts).then((picked) => {
+							onChange(picked.files);
+							onError(picked.error);
+						});
+					}}
+				/>
+			)}
 			{linking && (
 				<div className="px-1.5 pb-1">
 					<YoutubeLinkForm

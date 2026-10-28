@@ -92,4 +92,5 @@ export * from "./lesson-sources.ts";
 export * from "./mode-switch.ts";
 export * from "./folders.ts";
 export * from "./mistakes.ts";
+export * from "./pdf-split.ts";
 export * from "./projects.ts";
