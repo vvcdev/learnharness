@@ -339,9 +339,11 @@ export function ProjectPackForm({
 						className="sr-only"
 						tabIndex={-1}
 						onChange={(e) => {
-							const list = e.target.files;
+							// Copy BEFORE clearing the input: resetting its value empties
+							// the live FileList in Chrome, and nothing would upload.
+							const list = Array.from(e.target.files ?? []);
 							e.target.value = "";
-							if (!list) return;
+							if (list.length === 0) return;
 							void stagePickedFiles(incoming, list, existing.length).then((picked) => {
 								if (picked.error) {
 									setError(picked.error);

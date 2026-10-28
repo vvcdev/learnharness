@@ -71,14 +71,14 @@ export async function attachProjectFiles(
 
 export async function stagePickedFiles(
 	current: readonly AttachedSource[],
-	incoming: FileList | null,
+	incoming: FileList | readonly File[] | null,
 	/** How many files already live on the project/session besides `current`. */
 	already = 0,
 ): Promise<{ files: AttachedSource[]; error: string | null }> {
 	if (!incoming || incoming.length === 0) return { files: [...current], error: null };
 	const next = [...current];
 	const toUpload: File[] = [];
-	for (const file of incoming) {
+	for (const file of Array.from(incoming)) {
 		const reason = lessonSourceError(file.name, file.size, already + next.length + toUpload.length);
 		if (reason) return { files: next, error: reason };
 		// Snapshot bytes immediately so deleting Downloads can't empty the File handle.
