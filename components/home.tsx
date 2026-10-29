@@ -7,6 +7,7 @@ import { GraphView } from "@/components/graph-view";
 import { MinimalHome } from "@/components/minimal-home";
 import { SetupDialog } from "@/components/setup-dialog";
 import { ComposerActions, NodePickerControl } from "@/components/composer-actions";
+import { NO_PROBING_LINE } from "@/components/new-session";
 import { openingWithSources, projectSource, SourcePicker, type AttachedSource } from "@/components/source-attach";
 import { useActiveProject, useProjectMention } from "@/components/project-mention";
 import { ProjectPackControl } from "@/components/project-pack";
@@ -136,6 +137,13 @@ export function Home({
 	useImagePasteTarget(images);
 	// Chat is the default (owner 2026-10-26); ⌘1/⌘2/⌘3 switch.
 	const [mode, setMode] = useState<"teach" | "practice" | "chat">("chat");
+	// Teach only: ticked, the first message tells the prober to skip the probe.
+	const [noProbing, setNoProbing] = useState(false);
+	const noProbingRef = useRef(false);
+	const applyNoProbing = (v: boolean) => {
+		noProbingRef.current = v;
+		setNoProbing(v);
+	};
 	useEffect(() => {
 		const pairs = [
 			["home-mode-chat", "chat"],
@@ -216,6 +224,7 @@ export function Home({
 			let prompt = opening;
 			try {
 				prompt = await openingWithSources(id, opening, sourcesRef.current);
+				if (mode === "teach" && noProbingRef.current) prompt = `${prompt}\n\n${NO_PROBING_LINE}`;
 			} catch (error) {
 				await fetch(`/api/chats/${id}?mode=preserve-graph`, { method: "DELETE" }).catch(() => {});
 				setSourceError(error instanceof Error ? error.message : "Could not save the sources.");
@@ -431,6 +440,18 @@ export function Home({
 									))}
 								</div>
 								<ProjectPackControl onActiveChange={onActiveProject} />
+								{mode === "teach" && (
+									<label className="flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground">
+										<input
+											type="checkbox"
+											data-testid="no-probing"
+											checked={noProbing}
+											onChange={(e) => applyNoProbing(e.target.checked)}
+											className="size-3.5 accent-primary"
+										/>
+										No probing
+									</label>
+								)}
 							</div>
 						}
 					/>
