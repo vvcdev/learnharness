@@ -3,14 +3,31 @@
 /**
  * Upstream-notify banner (fork): shows when the shell reports a newer
  * public release (status "downloaded" = notify only — never installed).
- * Snapshot retrieval covers late loads. Dismissible; Details explains merge.
+ * Snapshot retrieval covers late loads. The X hides the notice for that version; Details explains merge.
  */
 
+import { useEffect, useState } from "react";
+import { XIcon } from "lucide-react";
 import { useUpdateState } from "@/components/settings/update-settings.tsx";
+
+const DISMISSED_KEY = "lh:update-banner-dismissed";
+
+function dismissedVersion(): string | null {
+	try {
+		return window.localStorage.getItem(DISMISSED_KEY);
+	} catch {
+		return null;
+	}
+}
 
 export default function UpdateBanner() {
 	const { state: ready } = useUpdateState();
+	// Hides this version only: a newer release shows the banner again.
+	const [dismissed, setDismissed] = useState<string | null>(null);
+	useEffect(() => setDismissed(dismissedVersion()), []);
 	if (ready?.status !== "downloaded") return null;
+	const version = ready.version ?? "update";
+	if (dismissed === version) return null;
 	return (
 		<div
 			data-testid="update-banner"
@@ -29,6 +46,22 @@ export default function UpdateBanner() {
 				className="shrink-0 rounded-md bg-accent px-3 py-1.5 text-sm font-medium transition-colors hover:bg-accent/80"
 			>
 				Details
+			</button>
+			<button
+				type="button"
+				data-testid="update-banner-dismiss"
+				aria-label="Dismiss update notice"
+				onClick={() => {
+					setDismissed(version);
+					try {
+						window.localStorage.setItem(DISMISSED_KEY, version);
+					} catch {
+						/* the banner still hides for this session */
+					}
+				}}
+				className="-mr-1 -mt-0.5 shrink-0 rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+			>
+				<XIcon className="size-4" />
 			</button>
 		</div>
 	);

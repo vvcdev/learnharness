@@ -55,4 +55,36 @@ describe("update banner (fork notify)", () => {
 		root.unmount();
 		host.remove();
 	});
+
+	it("the X hides the banner for that version and a newer version shows it again", async () => {
+		const store = new Map<string, string>();
+		(window as { localStorage?: unknown }).localStorage = {
+			getItem: (k: string) => store.get(k) ?? null,
+			setItem: (k: string, v: string) => void store.set(k, v),
+		};
+		const mount = async (version: string) => {
+			(window as { lh?: unknown }).lh = {
+				onUpdateStatus: () => () => {},
+				getUpdateState: async () => ({ status: "downloaded", version, revision: 1 }) satisfies UpdateState,
+			};
+			const host = document.createElement("div");
+			document.body.appendChild(host);
+			const root = ReactDOMClient.createRoot(host);
+			await act(async () => root.render(<UpdateBanner />));
+			return { host, root };
+		};
+		const first = await mount("0.4.0");
+		const x = first.host.querySelector<HTMLButtonElement>("[data-testid='update-banner-dismiss']");
+		assert.ok(x, "the X renders");
+		await act(async () => x!.click());
+		assert.equal(first.host.innerHTML, "", "dismissed");
+		first.root.unmount();
+		const same = await mount("0.4.0");
+		assert.equal(same.host.innerHTML, "", "stays hidden for the same version");
+		same.root.unmount();
+		const newer = await mount("0.4.1");
+		assert.ok(newer.host.innerHTML.includes("0.4.1"), "a newer version shows again");
+		newer.root.unmount();
+		delete (window as { localStorage?: unknown }).localStorage;
+	});
 });
