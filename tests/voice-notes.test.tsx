@@ -183,6 +183,6 @@ describe("voice everywhere (owner 2026-10-25) — messages, answers, openings", 
 		}) as typeof fetch;
 		const target = await startDraftSession("", fake, undefined, undefined, "derivatives please");
 		assert.deepEqual(body, { title: "derivatives please" });
-		assert.equal(target, "/chat/chat_1?prompt=");
+		assert.equal(target, "/chat/chat_1");
 	});
 });

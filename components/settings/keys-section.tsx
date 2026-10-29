@@ -30,6 +30,7 @@ import { SubscriptionConnections } from "./subscription-connections.tsx";
 import { ProviderMenuList } from "./model-menu.tsx";
 import { MenuShell } from "@/components/menu-shell";
 import { notifySettingsSaved } from "@/components/settings-signal";
+import { DictationLanguageSetting } from "@/components/dictation-language";
 
 /** One pi-ai provider with plain API-key auth (the Platform seam —
  *  derived from pi-ai's own env-key table; no drift possible). */
@@ -94,6 +95,14 @@ export function classifyKeys(
 		unknownRows,
 		addable: (providers ?? []).filter((p) => !byId.has(p.envVar)),
 	};
+}
+
+/** A key row names its credential, not whichever provider sorts first.
+ * Pi exposes Zen and Go separately but both read OPENCODE_API_KEY. */
+export function providerKeyLabel(id: string, providers: readonly ProviderKeyInfo[] | undefined): string | undefined {
+	const matches = providers?.filter((p) => p.envVar === id);
+	if (matches?.some((p) => p.id === "opencode") && matches.some((p) => p.id === "opencode-go")) return "OpenCode (Zen / Go)";
+	return matches?.[0]?.label;
 }
 
 /** The minimal status line, e.g. "…ab12 · 64 chars" (" · env" marks an
@@ -342,6 +351,9 @@ export function KeysSection({
 		if (openRow === null && adding === null) return;
 		const onKeyDown = (e: KeyboardEvent) => {
 			if (e.key !== "Escape") return;
+			// A language dropdown above this editor in the dismissal stack owns
+			// the first Escape; do not swallow it at document capture phase.
+			if (document.querySelector('[data-testid="dictation-language-menu"]')) return;
 			e.preventDefault();
 			e.stopPropagation();
 			setOpenRow(null);

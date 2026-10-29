@@ -11,7 +11,7 @@ import { NO_PROBING_LINE } from "@/components/new-session";
 import { openingWithSources, projectSource, SourcePicker, type AttachedSource } from "@/components/source-attach";
 import { useActiveProject, useProjectMention } from "@/components/project-mention";
 import { ProjectPackControl } from "@/components/project-pack";
-import { useStrongKeyless, useZeroKeys, ZeroKeysPill } from "@/components/setup-cta";
+import { useModelSetup, selectedModelUnavailable, openModelPicker, ZeroKeysPill } from "@/components/setup-cta";
 import { useDictation } from "@/components/dictation";
 import { useVoiceNotes, voiceOpeningQuery, voiceText, VoiceNotesBox } from "@/components/voice-notes";
 import { useFieldCycle } from "@/components/field-cycle";
@@ -23,6 +23,8 @@ import { Hint } from "@/components/ui/hint";
 import { ImageDraftStrip, imageDropHandlers, useImageDraft, useImagePasteTarget } from "@/components/learner-images";
 import { useModelCatalog } from "@/components/model-picker";
 import { PracticeFormatPicker } from "@/components/practice-format";
+import { OPENING_PROMPT_FAILURE, stashOpeningPrompt } from "@/components/opening-prompt";
+import { SessionStarter } from "@/components/start-session";
 
 /**
  * Home — the knowledge graph is the main view, full-bleed edge to edge
@@ -64,15 +66,8 @@ export function Home({
 	// start until the user has picked all three slots — no defaults for
 	// 33 providers. The dock shows the CTA while unconfigured; submitting
 	// a topic opens the setup dialog WITH THE DRAFT PRESERVED (Save
-	// stores the slots and the queued message sends).
-	const [configured, setConfigured] = useState(initialConfigured);
-	// The zero-keys truth (zero-keys wave): no provider key = the pill
-	// takes precedence over the models CTA (keys come first in the chain).
-	const zeroKeys = useZeroKeys();
-	// The strong slot's keyless truth (pre-send key guards, owner interlude
-	// 2026-09-25): keys may exist generally while the STRONG slot's pinned
-	// provider has none — the same skip-everything treatment on send.
-	const strongKeyless = useStrongKeyless();
+	// stores slots only; the learner sends the message themselves).
+	const { catalog, configured, zeroKeys } = useModelSetup(initialConfigured);
 	const [setupOpen, setSetupOpen] = useState(false);
 	// Voice dictation (STT wave, 2026-09-17): finals append at the end of the
 	// topic draft; the strip lives in the stats bar's middle slot.
@@ -81,6 +76,9 @@ export function Home({
 	const voice = useVoiceNotes();
 	const dictation = useDictation({ append: voice.add });
 	const [busy, setBusy] = useState(false);
+	const startingRef = useRef(false);
+	const starterRef = useRef(new SessionStarter());
+	const [startError, setStartError] = useState(false);
 	/* Run end focuses the topic input (owner, 2026-10-01): the hands are on
 	 * the keyboard from the stop. Falling edge only; this surface's only
 	 * dictation target IS this textarea, so no case-split is needed. */
@@ -183,7 +181,7 @@ export function Home({
 		const spoken = voiceText(voice.ref.current);
 		const hasImages = images.ref.current.length > 0;
 		const opening = t || (hasContext && !spoken ? "Teach me from these sources." : "");
-		if ((!opening && !spoken && !hasImages) || busy) return;
+		if ((!opening && !spoken && !hasImages) || startingRef.current) return;
 		// Unconfigured: the send INTERCEPTS into the setup flow (the draft
 		// stays in the textarea; the learner sends it after Save).
 		if (!configured) {
@@ -194,40 +192,47 @@ export function Home({
 		// models case guards BEFORE creation; the key cases must too — a
 		// refused first send would otherwise leave an orphan error-shell
 		// chat in the sidebar (the 503 lands only after POST /api/chats
-		// already created the record). Same skip-everything-and-open-setup
-		// treatment; the server's 503 gate remains the belt for /chat/[id]
-		// sessions.
-		if (zeroKeys || strongKeyless) {
+		// already created the record). Zero providers opens connection setup;
+		// an unavailable selection with another provider opens its ordinary
+		// picker. The server's admission gate remains the belt.
+		if (zeroKeys) {
 			setSetupOpen(true);
 			return;
 		}
+		const strong = catalog?.slots.strong?.model;
+		if (selectedModelUnavailable(catalog, strong ? `${strong.provider}:${strong.id}` : undefined)) {
+			openModelPicker();
+			return; // Preserve the draft and never create an orphan session.
+		}
+		startingRef.current = true;
 		setBusy(true);
+		setStartError(false);
 		try {
 			// The map context (owner, 2026-10-04): picks in EITHER mode ride
 			// the CREATION as graphContext — the server writes a
 			// graph-context marker as message[0] (a separate custom message
 			// before the learner's first user message, propositions + the
 			// chains among them); the prompt stays the learner's own words.
-			const res = await fetch("/api/chats", {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({
-					title: opening || spoken || "Images",
-					...(mode === "practice" ? { kind: "practice", practice } : mode === "chat" ? { kind: "chat" } : {}),
-					...(practiceProps.length > 0 ? { graphContext: { propositions: practiceProps } } : {}),
-				}),
-			});
-			const { id } = (await res.json()) as { id: string };
-			// No settings PUT on create (per-session models, owner
-			// 2026-09-28): the SERVER stamps the newborn from the strong
-			// slot — the same default this surface's model control edits.
-			let prompt = opening;
-			try {
-				prompt = await openingWithSources(id, opening, sourcesRef.current);
-				if (mode === "teach" && noProbingRef.current) prompt = `${prompt}\n\n${NO_PROBING_LINE}`;
-			} catch (error) {
+			const target = await starterRef.current.start({
+				title: opening || spoken || "Images",
+				...(mode === "practice" ? { kind: "practice", practice } : mode === "chat" ? { kind: "chat" } : {}),
+				...(practiceProps.length > 0 ? { graphContext: { propositions: practiceProps } } : {}),
+			}, fetch, JSON.stringify(catalog?.slots.strong), opening);
+			const id = target.slice("/chat/".length);
+			// Attached sources become lesson files in the new session, so the
+			// first message names them: re-stash the full text under the id.
+			const discard = async () => {
+				starterRef.current.forget();
 				await fetch(`/api/chats/${id}?mode=preserve-graph`, { method: "DELETE" }).catch(() => {});
+			};
+			try {
+				let prompt = await openingWithSources(id, opening, sourcesRef.current);
+				if (mode === "teach" && noProbingRef.current) prompt = `${prompt}\n\n${NO_PROBING_LINE}`;
+				if (prompt !== opening && !stashOpeningPrompt(id, prompt)) throw new Error(OPENING_PROMPT_FAILURE);
+			} catch (error) {
+				await discard();
 				setSourceError(error instanceof Error ? error.message : "Could not save the sources.");
+				startingRef.current = false;
 				setBusy(false);
 				return;
 			}
@@ -238,8 +243,9 @@ export function Home({
 				const refs = await images.uploadTo(id);
 				if (refs) imageQuery = `&images=${encodeURIComponent(JSON.stringify(refs))}`;
 			} catch (error) {
-				await fetch(`/api/chats/${id}?mode=preserve-graph`, { method: "DELETE" }).catch(() => {});
+				await discard();
 				setSourceError(error instanceof Error ? error.message : "Could not upload the images.");
+				startingRef.current = false;
 				setBusy(false);
 				return;
 			}
@@ -247,9 +253,12 @@ export function Home({
 			images.clear();
 			const voiceQuery = voiceOpeningQuery(voice.ref.current);
 			voice.clear();
-			router.push(`/chat/${id}?prompt=${encodeURIComponent(prompt)}${voiceQuery}${imageQuery}`);
+			const query = `${voiceQuery}${imageQuery}`.replace(/^&/, "?");
+			router.push(`${target}${query}`);
 		} catch {
+			startingRef.current = false;
 			setBusy(false);
+			setStartError(true);
 		}
 	};
 
@@ -339,6 +348,7 @@ export function Home({
 							)
 						)}
 					/>
+					{startError && <p role="alert" className="mb-2 text-sm text-destructive">{OPENING_PROMPT_FAILURE}</p>}
 					<form
 						className="flex flex-col rounded-2xl border bg-card p-1.5 shadow-lg"
 						onSubmit={(e) => {
@@ -466,7 +476,6 @@ export function Home({
 				open={setupOpen}
 				onClose={() => setSetupOpen(false)}
 				onDone={() => {
-					setConfigured(true);
 					setSetupOpen(false);
 					// Save only saves: the draft waits in the composer.
 				}}

@@ -9,13 +9,15 @@ import { useVoiceNotes, voiceOpeningQuery, voiceText, type VoiceNotes } from "@/
 import { useFieldCycle } from "@/components/field-cycle";
 import { SidebarToggle } from "@/components/sidebar";
 import { SetupDialog } from "@/components/setup-dialog";
-import { useStrongKeyless, useZeroKeys, ZeroKeysPill } from "@/components/setup-cta";
+import { useModelSetup, selectedModelUnavailable, openModelPicker, ZeroKeysPill } from "@/components/setup-cta";
 import { StatsBar } from "@/components/stats-bar";
 import { ChainTableOverlay } from "@/components/chain-table.tsx";
 import { ComposerActions, NodePickerControl } from "@/components/composer-actions";
 import { openingWithSources, projectSource, SourcePicker, type AttachedSource } from "@/components/source-attach";
 import { useActiveProject, useProjectMention } from "@/components/project-mention";
 import { ProjectPackControl } from "@/components/project-pack";
+import { OPENING_PROMPT_FAILURE, stashOpeningPrompt } from "@/components/opening-prompt";
+import { SessionStarter } from "@/components/start-session";
 import type { ChatSettings, GraphSnapshot, PracticeSettings, ProjectSummary } from "@/src/core";
 import { DEFAULT_PRACTICE_SETTINGS } from "@/src/core";
 import { PracticeFormatPicker } from "@/components/practice-format";
@@ -41,12 +43,10 @@ export type DraftPick = { id: string; name: string; statement: string };
 const DOCK = "mx-auto w-full max-w-[46rem] px-4";
 
 /**
- * The draft's whole behavior as one pure seam: create the session (title =
- * the first message), persist the lifted pre-chat settings, return the push
- * target — /chat/<id>?prompt=<msg> — whose initialPrompt path delivers the
- * message as turn 1. Injected fetch/router so tests pin the contract.
- * Returns null on empty text; rethrows on transport failure (the caller's
- * busy flag resets).
+ * Create, safely hand over the full opening text, then return a short
+ * /chat/<id> target. Storage/creation failures leave the caller's draft
+ * intact. A per-composer starter reuses an already-created session on an
+ * unchanged retry. The server stamps settings at birth; no settings PUT.
  */
 export async function startDraftSession(
 	text: string,
@@ -58,6 +58,8 @@ export async function startDraftSession(
 	title: string = text,
 	/** The practice format (owner 2026-10-26) — practice drafts only. */
 	practice?: PracticeSettings,
+	starter = new SessionStarter(),
+	settingsIdentity?: string,
 ): Promise<string | null> {
 	const t = text.trim();
 	const name = title.trim();
@@ -66,26 +68,21 @@ export async function startDraftSession(
 	// from the pick bar creates its session WITH the graph context — the
 	// same contract as the home screen's practice send (the marker with
 	// [id] name: statement lines, target validation's truth set).
-	const res = await fetchLike("/api/chats", {
-		method: "POST",
-		headers: { "Content-Type": "application/json" },
-		body: JSON.stringify(
-			mode === "practice"
-				? {
-						title: name,
-						kind: "practice",
-						...(picks && picks.length > 0 ? { graphContext: { propositions: picks } } : {}),
-						...(practice ? { practice } : {}),
-					}
-				: mode === "chat"
-					? { title: name, kind: "chat" }
-					: { title: name },
-		),
-	});
-	const { id } = (await res.json()) as { id: string };
-	// No settings PUT on create (per-session models, owner 2026-09-28):
-	// the SERVER stamps the newborn from the strong slot.
-	return `/chat/${id}?prompt=${encodeURIComponent(t)}`;
+	return starter.start(
+		mode === "practice"
+			? {
+					title: name,
+					kind: "practice",
+					...(picks && picks.length > 0 ? { graphContext: { propositions: picks } } : {}),
+					...(practice ? { practice } : {}),
+				}
+			: mode === "chat"
+				? { title: name, kind: "chat" }
+				: { title: name },
+		fetchLike,
+		settingsIdentity,
+		t,
+	);
 }
 
 /** The pure shell (no router) — the render-test seam: the draft view's
@@ -99,6 +96,7 @@ export function DraftShell({
 	onChange,
 	onSend,
 	voice,
+	startError = false,
 	setupCta,
 	mode = "teach",
 	picks = [],
@@ -125,6 +123,7 @@ export function DraftShell({
 	/** The voice box (voice-everywhere wave, owner 2026-10-25): dictation
 	 *  becomes hidden voice notes riding the send — owned by NewSession. */
 	voice?: { value: VoiceNotes; add: (text: string, seconds: number) => void; clear: () => void };
+	startError?: boolean;
 	/** The practice draft (owner, 2026-10-04): ?mode=practice — the
 	 *  created session carries kind:"practice" and the copy changes
 	 *  (the practice agent opens; no probing). */
@@ -268,6 +267,7 @@ export function DraftShell({
 									)}
 									setup={setupCta}
 								/>
+								{startError && <p role="alert" className="pointer-events-auto mb-2 text-sm text-destructive">{OPENING_PROMPT_FAILURE}</p>}
 								<div className="pointer-events-auto overflow-hidden rounded-2xl border bg-card shadow-lg">
 									<Composer
 										busy={busy}
@@ -380,6 +380,9 @@ export function NewSession({ initialConfigured, mode = "teach" }: { initialConfi
 		practiceRef.current = next;
 		setPractice(next);
 	};
+	const startingRef = useRef(false);
+	const starterRef = useRef(new SessionStarter());
+	const [startError, setStartError] = useState(false);
 	// THE PICK BAR (owner round 10): the draft's lifted pick set + the
 	// snapshot the standalone chain-table picker reads. Lazy — the graph
 	// is fetched on FIRST open only, then reused.
@@ -412,14 +415,7 @@ export function NewSession({ initialConfigured, mode = "teach" }: { initialConfi
 	// 33 providers, chats cannot start. The draft stays in the textarea;
 	// Save stores the slots and never sends (owner ruling 2026-10-09) —
 	// the learner sends the draft themselves.
-	const [configured, setConfigured] = useState(initialConfigured);
-	// The zero-keys truth (zero-keys wave): no provider key = the pill
-	// takes precedence over the models CTA (keys come first in the chain).
-	const zeroKeys = useZeroKeys();
-	// The strong slot's keyless truth (pre-send key guards, owner interlude
-	// 2026-09-25): keys may exist generally while the STRONG slot's pinned
-	// provider has none — the same skip-everything treatment on send.
-	const strongKeyless = useStrongKeyless();
+	const { catalog, configured, zeroKeys } = useModelSetup(initialConfigured);
 	const [setupOpen, setSetupOpen] = useState(false);
 	const [sources, setSources] = useState<AttachedSource[]>([]);
 	const sourcesRef = useRef<AttachedSource[]>([]);
@@ -445,7 +441,7 @@ export function NewSession({ initialConfigured, mode = "teach" }: { initialConfi
 		const hasContext = sourcesRef.current.length > 0 || !!activeProjectRef.current;
 		const spoken = voiceText(voiceRef.current);
 		const hasImages = imagesRef.current.ref.current.length > 0;
-		if ((!draft && !hasContext && !spoken && !hasImages) || busy) return;
+		if ((!draft && !hasContext && !spoken && !hasImages) || startingRef.current) return;
 		if (!configured) {
 			setSetupOpen(true);
 			return;
@@ -453,14 +449,22 @@ export function NewSession({ initialConfigured, mode = "teach" }: { initialConfi
 		// The pre-send KEY guards (owner interlude, no-orphan-chats): guard
 		// BEFORE startDraftSession creates the record — a refused first
 		// send would otherwise leave an orphan error-shell chat in the
-		// sidebar. Same skip-everything-and-open-setup treatment; the
-		// server's 503 gate remains the belt for /chat/[id] sessions.
-		if (zeroKeys || strongKeyless) {
+		// sidebar. Zero providers opens connection setup; an unavailable
+		// selection with another provider opens the ordinary Strong picker.
+		// The server's admission gate remains the belt.
+		if (zeroKeys) {
 			setSetupOpen(true);
 			return;
 		}
+		const strong = catalog?.slots.strong?.model;
+		if (selectedModelUnavailable(catalog, strong ? `${strong.provider}:${strong.id}` : undefined)) {
+			openModelPicker();
+			return; // The learner replaces it explicitly, then sends again.
+		}
+		startingRef.current = true;
 		setBusy(true);
 		const opening = draft || (spoken || !hasContext ? "" : "Teach me from these sources.");
+		setStartError(false);
 		void startDraftSession(
 			opening,
 			fetch,
@@ -468,16 +472,26 @@ export function NewSession({ initialConfigured, mode = "teach" }: { initialConfi
 			mode === "practice" ? picksRef.current : undefined,
 			opening || spoken || "Images",
 			mode === "practice" ? practiceRef.current : undefined,
+			starterRef.current,
+			JSON.stringify(catalog?.slots.strong),
 		)
 			.then(async (target) => {
 				if (!target) {
+					startingRef.current = false;
 					setBusy(false);
 					return;
 				}
-				const id = target.slice("/chat/".length, target.indexOf("?"));
+				const id = target.slice("/chat/".length);
+				const discard = async () => {
+					starterRef.current.forget();
+					await fetch(`/api/chats/${id}?mode=preserve-graph`, { method: "DELETE" }).catch(() => {});
+				};
 				try {
+					// Attached sources become lesson files in the new session, so the
+					// first message names them: re-stash the full text under the id.
 					const sourced = await openingWithSources(id, opening, sourcesRef.current);
 					const prompt = mode === "teach" && noProbingRef.current ? `${sourced}\n\n${NO_PROBING_LINE}` : sourced;
+					if (prompt !== opening && !stashOpeningPrompt(id, prompt)) throw new Error(OPENING_PROMPT_FAILURE);
 					// Pasted images (owner 2026-10-26): into the new session; their
 					// refs ride the first message.
 					const refs = await imagesRef.current.uploadTo(id);
@@ -486,23 +500,30 @@ export function NewSession({ initialConfigured, mode = "teach" }: { initialConfi
 					imagesRef.current.clear();
 					const voiceQuery = voiceOpeningQuery(voiceRef.current);
 					clearVoice();
-					router.push(`/chat/${id}?prompt=${encodeURIComponent(prompt)}${voiceQuery}${imageQuery}`);
+					const query = `${voiceQuery}${imageQuery}`.replace(/^&/, "?");
+					router.push(`${target}${query}`);
 				} catch (error) {
-					await fetch(`/api/chats/${id}?mode=preserve-graph`, { method: "DELETE" }).catch(() => {});
+					await discard();
 					setSourceError(error instanceof Error ? error.message : "Could not save the sources.");
+					startingRef.current = false;
 					setBusy(false);
 				}
 			})
-			.catch(() => setBusy(false));
+			.catch(() => {
+				startingRef.current = false;
+				setBusy(false);
+				setStartError(true);
+			});
 		// `mode` MUST be a dep (owner bug, 2026-10-25): /chat/new?mode=practice →
 		// /chat/new is a same-route navigation — the page re-renders with the
 		// new mode but a stale `send` created the session with the OLD kind.
-	}, [busy, router, configured, zeroKeys, strongKeyless, voiceRef, clearVoice, mode]);
+	}, [router, configured, zeroKeys, catalog, voiceRef, clearVoice, mode]);
 
 	return (
 		<>
 			<DraftShell
 				busy={busy}
+				startError={startError}
 				text={text}
 				onChange={applyText}
 				onSend={send}
@@ -571,7 +592,6 @@ export function NewSession({ initialConfigured, mode = "teach" }: { initialConfi
 				open={setupOpen}
 				onClose={() => setSetupOpen(false)}
 				onDone={() => {
-					setConfigured(true);
 					setSetupOpen(false);
 					// Save only saves (owner ruling 2026-10-09): the draft
 					// waits in the composer; the learner sends it.
