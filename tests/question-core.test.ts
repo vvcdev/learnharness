@@ -13,6 +13,7 @@ import {
 	buildAnswer,
 	compactAnswerForModel,
 	dismissedAnswer,
+	skipProbeAnswer,
 	coerceCorrectAnswer,
 	CONFIDENCE_STOPS,
 	DEFAULT_CONFIDENCE_INDEX,
@@ -550,6 +551,13 @@ describe("compactAnswerForModel", () => {
 		};
 		const compact = compactAnswerForModel(buildAnswer(askQD, { text: "lateral thinking" }));
 		assert.deepEqual(compact, { kind: "ask", text: "lateral thinking" });
+	});
+
+	it("skipProbe: the model sees only the skip flag", () => {
+		const ad = skipProbeAnswer("quiz", "What is a vector?", "probe");
+		assert.equal(ad.dontKnow, false);
+		assert.deepEqual(ad.answers, []);
+		assert.deepEqual(compactAnswerForModel(ad), { kind: "quiz", skipProbe: true });
 	});
 
 	it("dismissed: a one-field record", () => {

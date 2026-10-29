@@ -11,6 +11,7 @@ import { ToolContentResponse } from "@/components/ai-elements/message";
 import { cn } from "@/lib/utils";
 import {
 	buildAnswer,
+	skipProbeAnswer,
 	repairMathForDisplay,
 	normalizeQuizType,
 	CONFIDENCE_STOPS,
@@ -89,6 +90,8 @@ export interface QuestionDockProps {
 	/** Session phase at the question — scales the thinking field: probing
 	 *  stays quick (one row), teaching invites dumping (three rows). */
 	phase?: Phase3;
+	/** Teaching session still probing: offers "Just teach me" (skip the probe). */
+	canSkipProbe?: boolean;
 	/** Dictation claim (owner 2026-10-03): false while a teach-phase check
 	 *  sits UNREVEALED — the reading-thinking field owns dictated speech
 	 *  during the reading; the dock reclaims on reveal. Default true (probe
@@ -132,6 +135,7 @@ export function QuestionDock({
 	onSaveDraft,
 	onEscape,
 	phase = "probe",
+	canSkipProbe = false,
 	dictationClaim = true,
 	compactionRunning = false,
 	confidence = true,
@@ -184,6 +188,7 @@ export function QuestionDock({
 					toolCallId={toolCallId}
 					input={parsed}
 					phase={phase}
+					canSkipProbe={canSkipProbe}
 					active={expanded}
 					onSubmit={onSubmit}
 					initialDraft={initialDraft}
@@ -282,6 +287,7 @@ export function QuestionDockForm({
 	toolCallId,
 	input,
 	phase = "probe",
+	canSkipProbe = false,
 	active,
 	onSubmit,
 	initialDraft,
@@ -993,6 +999,18 @@ export function QuestionDockForm({
 					<ImageDraftStrip draft={images} className="px-2.5 pb-1.5" />
 					<div className="flex items-center justify-between gap-2 p-1">
 						<ImageAttachButton draft={images} />
+						{canSkipProbe && (
+							<Button
+								type="button"
+								variant="ghost"
+								data-testid="just-teach-me"
+								disabled={compactionRunning}
+								onClick={() => onSubmit(skipProbeAnswer(qd.kind, qd.question, toolName))}
+								className="h-9 rounded-[6px] px-2.5 text-sm text-muted-foreground"
+							>
+								Just teach me
+							</Button>
+						)}
 						<span aria-hidden className="text-xs text-muted-foreground">
 								{compactionRunning
 									? "compacting session…"

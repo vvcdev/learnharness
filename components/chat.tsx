@@ -1800,6 +1800,7 @@ export function Chat({
 					onReadingVoice={readingVoice.add}
 					onReadingVoiceClear={clearReadingVoice}
 					phase={phases.at(-1) ?? "probe"}
+					canSkipProbe={kind === "teach" && (phases.at(-1) ?? "probe") === "probe"}
 					turns={turns}
 					contextTokens={contextTokens}
 					pricing={pricing}
@@ -2061,6 +2062,7 @@ function DockOverlay({
 	onReadingVoice,
 	onReadingVoiceClear,
 	phase,
+	canSkipProbe,
 	turns,
 	contextTokens,
 	pricing,
@@ -2108,6 +2110,8 @@ function DockOverlay({
 	onReadingVoiceClear: () => void;
 	/** Session phase at the pending question — scales the thinking field. */
 	phase: Phase3;
+	/** Teaching session still probing — the dock offers "Just teach me". */
+	canSkipProbe: boolean;
 	/** The session's usage log — the stats bar beneath the composer folds it. */
 	turns: TurnUsage[];
 	contextTokens: number | null;
@@ -2570,6 +2574,7 @@ function DockOverlay({
 									expanded={expanded}
 									reveal={revealPending}
 									phase={phase}
+									canSkipProbe={canSkipProbe}
 									onExpand={expandAndReveal}
 									onSubmit={onSubmitAnswer}
 									initialDraft={initialQuestionDraft}

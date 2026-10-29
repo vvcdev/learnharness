@@ -559,6 +559,9 @@ export interface QuestionAnswerData {
 	committed?: string; // explain only (rendering): the model's committed answer
 	explanation?: string; // quiz only (rendering)
 	dismissed?: boolean;
+	/** Probe phase only: the learner pressed "Just teach me" — no answer,
+	 *  no measurement; the prober concludes the probe at once. */
+	skipProbe?: boolean;
 	answeredAt: string;
 }
 
@@ -882,8 +885,22 @@ export function dismissedAnswer(kind: QuestionKind, questionText: string): Quest
 	};
 }
 
+/** The "Just teach me" record: the learner declines the probe. */
+export function skipProbeAnswer(kind: QuestionKind, questionText: string, tool?: string): QuestionAnswerData {
+	return {
+		kind,
+		...(tool ? { tool } : {}),
+		questionText,
+		dontKnow: false,
+		answers: [],
+		skipProbe: true,
+		answeredAt: new Date().toISOString(),
+	};
+}
+
 export function compactAnswerForModel(ad: QuestionAnswerData): Record<string, unknown> {
 	if (ad.dismissed) return { kind: ad.kind, dismissed: true };
+	if (ad.skipProbe) return { kind: ad.kind, skipProbe: true };
 	// A batch (owner 2026-10-26): one compact record per question, in order.
 	if (Array.isArray(ad.batch)) {
 		const items = ad.batch.map((item, i) => ({ question: i + 1, ...compactAnswerForModel(item) }));
