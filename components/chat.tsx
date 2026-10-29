@@ -26,7 +26,7 @@ import { SubagentSteerCard } from "@/components/artifacts/steer-card";
 import { Composer } from "@/components/composer";
 import { attachProjectFiles, projectSource, SourcePicker, uploadLessonSources, type AttachedSource } from "@/components/source-attach";
 import { useActiveProject, useProjectMention } from "@/components/project-mention";
-import { appendLessonSources } from "@/src/core";
+import { appendLessonSources, documentKindFor, explainPassageMessage, type Passage } from "@/src/core";
 import { useEnterSubmits } from "@/components/enter-submits";
 import { blurAfterPointerClick } from "@/components/focus-hygiene";
 import { dockStateKey } from "@/components/dock-state-key";
@@ -55,7 +55,8 @@ import { PlanBlock, PlanPopup, latestTree } from "@/components/plan-block";
 import { PlanMarginalia, planExists } from "@/components/plan-window";
 import { MermaidOverlay, SessionMermaidContext } from "@/components/session-overlay";
 import { AbortTurnDialog, type AbortMode } from "@/components/abort-turn-dialog";
-import { ArrowRightIcon, WaypointsIcon } from "lucide-react";
+import { ArrowRightIcon, BookOpenIcon, WaypointsIcon } from "lucide-react";
+import { DocumentViewer, type ViewerDocument, type ViewerMode } from "@/components/document-viewer";
 import { ImageInputContext, ImageThumbs, useImageDraft } from "@/components/learner-images";
 import { McqBatchCard, McqBatchDock } from "@/components/mcq-batch";
 import { StoppedBar } from "@/components/stopped-bar";
@@ -994,6 +995,12 @@ export function Chat({
 	// The live plan popup (wave 4): opened by any transcript plan block, the
 	// top-bar plan chip, and the dock band's marginalia.
 	const [planOpen, setPlanOpen] = useState(false);
+	// The document viewer (owner 2026-10-29): this chat's saved sources plus
+	// files opened from composer chips before they are sent.
+	const [savedDocs, setSavedDocs] = useState<ViewerDocument[]>([]);
+	const [stagedDocs, setStagedDocs] = useState<ViewerDocument[]>([]);
+	const [viewer, setViewer] = useState<{ current: string; mode: ViewerMode } | null>(null);
+	const viewerDocs = [...savedDocs, ...stagedDocs.filter((s) => !savedDocs.some((d) => d.name === s.name))];
 	// Real plan presence — gates the marginalia's clickable flank. A JSX
 	// element is always truthy; gating on the node alone mounted a phantom
 	// (invisible, clickable) button in the bottom-right whenever a question
@@ -1392,6 +1399,53 @@ export function Chat({
 		void deliver(busy);
 	};
 
+	/* THE DOCUMENT VIEWER (owner 2026-10-29). The chat's saved sources are
+	 * re-read when a send may have saved new ones; a highlighted passage
+	 * goes out as an ordinary message (steering a running turn, like any
+	 * other send). */
+	const messageCount = messages.length;
+	useEffect(() => {
+		let live = true;
+		void fetch(`/api/chats/${encodeURIComponent(chatId)}/sources`, { cache: "no-store" })
+			.then((res) => (res.ok ? res.json() : null))
+			.then((body: { documents?: { name: string; kind: "pdf" | "text" }[] } | null) => {
+				if (!live || !body?.documents) return;
+				const base = `/api/chats/${encodeURIComponent(chatId)}/sources`;
+				setSavedDocs(body.documents.map((d) => ({
+					name: d.name,
+					kind: d.kind,
+					fileUrl: `${base}/file?name=${encodeURIComponent(d.name)}`,
+					textUrl: `${base}/text?name=${encodeURIComponent(d.name)}`,
+				})));
+			})
+			.catch(() => {});
+		return () => { live = false; };
+	}, [chatId, messageCount]);
+	const openStagedDocument = (file: AttachedSource) => {
+		const kind = documentKindFor(file.name);
+		if (!kind) return;
+		const query = `batch=${encodeURIComponent(file.batchId)}&stored=${encodeURIComponent(file.stored)}`;
+		const doc: ViewerDocument = { name: file.name, kind, fileUrl: `/api/uploads/file?${query}`, textUrl: `/api/uploads/text?${query}` };
+		setStagedDocs((prev) => [...prev.filter((d) => d.name !== doc.name), doc]);
+		setViewer((v) => ({ current: doc.name, mode: v?.mode ?? "side" }));
+	};
+	const explainPassage = (passage: Passage) => {
+		if (compacting || pending) return;
+		if (zeroKeys) {
+			setSetupOpen(true);
+			return;
+		}
+		if (selectedModelUnavailable(catalog, selectedModel)) {
+			openModelPicker();
+			return;
+		}
+		const text = explainPassageMessage(passage);
+		// The answer lands in the chat: bring it back beside the document.
+		setViewer((v) => (v ? { ...v, mode: "side" } : v));
+		if (busy) void steer(text);
+		else void send({ type: "text", text });
+	};
+
 	return (
 		<MistakesContext.Provider value={sessionMistakes}>
 		<ImageInputContext.Provider value={imageInput}>
@@ -1497,6 +1551,22 @@ export function Chat({
 					{/* The plan chip (owner, plan-placement round): session-level
 					    structure beside the phase chip — access to the full-DAG popup
 					    at every width; the marginalia is the wide-screen glance view. */}
+					{viewerDocs.length > 0 && (
+						<Hint label="Read your documents and highlight passages to explain" side="bottom">
+							<button
+								type="button"
+								data-testid="documents-chip"
+								onClick={(e) => {
+									blurAfterPointerClick(e);
+									setViewer((v) => (v ? null : { current: viewerDocs[0]!.name, mode: "side" }));
+								}}
+								className="lh-no-drag flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full border border-border/80 px-2 py-0.5 text-xs font-medium uppercase tracking-wide text-muted-foreground transition-colors hover:border-border hover:text-foreground"
+							>
+								<BookOpenIcon className="size-3.5 text-primary" aria-hidden />
+								Documents
+							</button>
+						</Hint>
+					)}
 					{planTree && (
 						<Hint label="Open the full plan" side="bottom">
 <button
@@ -1941,6 +2011,7 @@ export function Chat({
 									error={sourceError}
 									onChange={applySources}
 									onError={setSourceError}
+									onOpen={openStagedDocument}
 									row={row}
 								/>
 							)}
@@ -2007,6 +2078,17 @@ export function Chat({
 				<AbortTurnDialog mode={abortAsk} onClose={() => setAbortAsk(null)} onConfirm={confirmAbort} busy={busy} />
 				</div>
 			</div>
+			{viewer && viewerDocs.length > 0 && (
+				<DocumentViewer
+					documents={viewerDocs}
+					current={viewer.current}
+					onSelect={(name) => setViewer((v) => (v ? { ...v, current: name } : v))}
+					mode={viewer.mode}
+					onModeChange={(mode) => setViewer((v) => (v ? { ...v, mode } : v))}
+					onClose={() => setViewer(null)}
+					onExplain={explainPassage}
+				/>
+			)}
 		</div>
 		</JobsContext.Provider>
 		</SessionMermaidContext.Provider>

@@ -46,6 +46,7 @@ export * from "./observability.ts";
 export * from "./model-catalog.ts";
 export { claudeCodeStatus } from "../agent/claude-code-auth.ts";
 export { saveLessonSources, removeSessionSources } from "./session-sources.ts";
+export { listSessionDocuments, sessionDocumentPath, documentText, pdfPageLimitFor, viewKindFor, type SessionDocument } from "./document-view.ts";
 export { stageUploads, claimUploads, removeUploadBatch, stagedUploadPath } from "./uploads.ts";
 export { fetchYoutubeSource, YoutubeError } from "./youtube.ts";
 export { readFolders, updateFolders, unplaceChat } from "../store/folders.ts";

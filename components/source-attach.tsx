@@ -1,8 +1,8 @@
 "use client";
 
 import { useRef, useState, type ReactNode } from "react";
-import { FolderIcon, LinkIcon, PaperclipIcon, XIcon } from "lucide-react";
-import { appendProjectContext, isOversizePdf, LESSON_SOURCE_ACCEPT, lessonSourceError, scopeChipLabel, scopeKindFor, type SourceScope } from "@/src/core";
+import { BookOpenIcon, FolderIcon, LinkIcon, PaperclipIcon, XIcon } from "lucide-react";
+import { appendProjectContext, documentKindFor, isOversizePdf, LESSON_SOURCE_ACCEPT, lessonSourceError, scopeChipLabel, scopeKindFor, type SourceScope } from "@/src/core";
 import { SourceScopePicker } from "@/components/source-scope-picker";
 import { PdfSplitter } from "@/components/pdf-splitter";
 import { cn } from "@/lib/utils";
@@ -261,10 +261,13 @@ export function takeSourceFiles(current: readonly AttachedSource[], incoming: Fi
 function SourceChips({
 	files,
 	onChange,
+	onOpen,
 	error,
 }: {
 	files: readonly AttachedSource[];
 	onChange: (files: AttachedSource[]) => void;
+	/** Open a staged file in the document viewer. */
+	onOpen?: (file: AttachedSource) => void;
 	error?: string | null;
 }) {
 	const [picking, setPicking] = useState<string | null>(null);
@@ -306,6 +309,18 @@ function SourceChips({
 									}
 									onClose={() => setPicking(null)}
 								/>
+							)}
+							{onOpen && !file.project && file.batchId !== "pending" && documentKindFor(file.name) !== null && (
+								<button
+									type="button"
+									data-testid="source-chip-read"
+									aria-label={`Read ${file.name}`}
+									title="Read it here and highlight passages to explain"
+									className="cursor-pointer text-muted-foreground hover:text-foreground"
+									onClick={() => onOpen(file)}
+								>
+									<BookOpenIcon className="size-3" />
+								</button>
 							)}
 							<button
 								type="button"
@@ -413,10 +428,13 @@ export function SourcePicker({
 	onError,
 	row,
 	onImages,
+	onOpen,
 }: {
 	files: readonly AttachedSource[];
 	disabled?: boolean;
 	error?: string | null;
+	/** Open a staged file in the document viewer (chat only). */
+	onOpen?: (file: AttachedSource) => void;
 	onChange: (files: AttachedSource[]) => void;
 	onError: (error: string | null) => void;
 	/** Images route (see SourceAttachButton). */
@@ -465,7 +483,7 @@ export function SourcePicker({
 					/>
 				</div>
 			)}
-			<SourceChips files={files} onChange={onChange} error={error} />
+			<SourceChips files={files} onChange={onChange} onOpen={onOpen} error={error} />
 			{row ? row(attach) : attach}
 		</>
 	);

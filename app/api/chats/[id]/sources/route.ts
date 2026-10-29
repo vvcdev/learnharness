@@ -1,7 +1,14 @@
 import { parseSourceScope, scopeNote } from "@/src/core";
-import { applySourceScope, claimUploads, getChat, saveLessonSources, writePdfPageLimit } from "@/src/server";
+import { applySourceScope, claimUploads, getChat, listSessionDocuments, saveLessonSources, writePdfPageLimit } from "@/src/server";
 
 export const dynamic = "force-dynamic";
+
+/** The chat's saved sources the document viewer can open. */
+export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+	const { id } = await params;
+	if (!getChat(id)) return Response.json({ error: "Not found" }, { status: 404 });
+	return Response.json({ documents: listSessionDocuments(id) });
+}
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
 	const { id } = await params;
