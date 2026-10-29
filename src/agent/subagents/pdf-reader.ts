@@ -8,7 +8,7 @@ import { piEngineFor, type PiEngine, type ThinkingLevel } from "../models.ts";
 import { providerEventObserver, type ProviderEventObserver } from "../provider-events.ts";
 import type { PdfResult, PdfToolInput } from "../../core/contracts.ts";
 import { getHeadless, type HeadlessApi } from "./headless.ts";
-import { pdfExtract, pdfInfo, pdfProbe, pdfSearch, type PdfSearchHit } from "./pdf-ops.ts";
+import { pdfExtract, pdfInfo, pdfProbe, pdfSearch, visualReason, type PdfSearchHit } from "./pdf-ops.ts";
 import { readPdfPageLimit } from "../tools/source-limits.ts";
 import { formatPages } from "../../core/source-scope.ts";
 
@@ -37,6 +37,14 @@ everything you know.
 Reading doctrine — always in this order:
 1. TRIAGE FIRST: call pdf_info. It returns page count plus per-page signals (text_length,
    image_count, math_density). Never read or render anything before this.
+   pdf_info marks every page whose extracted text cannot be trusted with "→ RENDER (reason)":
+   no-text (scanned, or text drawn as shapes), image, math, or dense-layout (tables, typeset
+   equations). Those pages MUST be read with pdf_render. Never quote or reason from their
+   extracted text: it is empty, scrambled, or has lost its table/equation structure.
+   If pdf_info says SCANNED DOCUMENT, pdf_extract and pdf_search find nothing: work only with
+   pdf_render, choosing pages from the question (and the teacher's page hints), 6 per call.
+   If you run out of budget before covering what the question needs, say which pages you did
+   not read instead of guessing.
 2. Pick a strategy by document size:
    - SHORT (≤ 10 pages): extract the full text; render every page that has meaningful
      math_density or images (you read equations and diagrams visually, not as extracted text).
@@ -133,11 +141,17 @@ async function pdfInfoText(pdfPath: string, allowed: Set<number> | null = null):
 		allowed
 			? `Pages: LIMITED to ${formatPages([...allowed].sort((a, b) => a - b))} — no other page exists for you`
 			: `Pages: ${info.page_count} (mean text length/page: ${info.mean_text_length})`,
-		...pages.map(
-			(p) =>
-				`p${p.page}: len=${p.text_length} img=${p.image_count} math=${p.math_density.toFixed(2)}`,
-		),
+		...pages.map((p) => {
+			const why = visualReason(p);
+			return `p${p.page}: len=${p.text_length} img=${p.image_count} math=${p.math_density.toFixed(2)}${why ? ` → RENDER (${why})` : ""}`;
+		}),
 	];
+	const blind = pages.filter((p) => visualReason(p) === "no-text").length;
+	if (pages.length > 0 && blind / pages.length >= 0.5) {
+		lines.push(
+			`SCANNED DOCUMENT: ${blind} of ${pages.length} pages have no extractable text. pdf_extract and pdf_search will find nothing there — read these pages with pdf_render only.`,
+		);
+	}
 	return lines.join("\n");
 }
 

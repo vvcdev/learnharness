@@ -7,7 +7,7 @@
 import assert from "node:assert/strict";
 import * as path from "node:path";
 import { describe, it } from "node:test";
-import { parsePageSpec, pdfExtract, pdfInfo, pdfProbe, pdfSearch } from "../src/agent/subagents/pdf-ops.ts";
+import { parsePageSpec, pdfExtract, pdfInfo, pdfProbe, pdfSearch, visualReason } from "../src/agent/subagents/pdf-ops.ts";
 
 const FIXTURE = path.join(import.meta.dirname, "fixtures", "sample-3page.pdf");
 
@@ -63,5 +63,19 @@ describe("pdf-ops — the pdfjs text layer", () => {
 		assert.deepEqual(parsePageSpec("1,3,7", 3), [1, 3]);
 		assert.deepEqual(parsePageSpec("3", 3), [3]);
 		assert.deepEqual(parsePageSpec(" 2 , 1 ", 3), [1, 2]);
+	});
+});
+describe("visualReason — which pages cannot be trusted as text", () => {
+	const page = { page: 1, text_length: 800, image_count: 0, math_density: 0, item_count: 60 };
+	it("trusts an ordinary text page", () => assert.equal(visualReason(page), null));
+	it("flags a scanned page (no extractable text)", () => assert.equal(visualReason({ ...page, text_length: 0, item_count: 0 }), "no-text"));
+	it("flags images, math, and table-like fragmented layouts", () => {
+		assert.equal(visualReason({ ...page, image_count: 2 }), "image");
+		assert.equal(visualReason({ ...page, math_density: 0.2 }), "math");
+		assert.equal(visualReason({ ...page, text_length: 500, item_count: 400 }), "dense-layout");
+	});
+	it("pdfInfo reports item_count and the fixture needs no visual reading", async () => {
+		const info = await pdfInfo(FIXTURE);
+		assert.ok(info.pages.every((p) => p.item_count > 0 && visualReason(p) === null));
 	});
 });

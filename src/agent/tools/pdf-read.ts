@@ -3,7 +3,7 @@ import * as path from "node:path";
 import { Type } from "typebox";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { serverExecute } from "../tool-execute.ts";
-import { pdfExtract, pdfInfo, pdfProbe, pdfSearch } from "../subagents/pdf-ops.ts";
+import { pdfExtract, pdfInfo, pdfProbe, pdfSearch, visualReason } from "../subagents/pdf-ops.ts";
 
 /**
  * PDF reading tools for the RESEARCHER sub-agent (owner design B,
@@ -35,10 +35,10 @@ function sizeClass(pageCount: number): "short" | "medium" | "long" {
 	return "long";
 }
 
-/** Pages worth a look before any extraction — math- or image-heavy. */
+/** Pages worth a look before any extraction — scanned, math-, image- or table-heavy. */
 function flaggedPages(info: Awaited<ReturnType<typeof pdfInfo>>): number[] {
 	return info.pages
-		.filter((p) => p.math_density >= 0.03 || p.image_count > 0)
+		.filter((p) => visualReason(p) !== null)
 		.slice(0, 30)
 		.map((p) => p.page);
 }

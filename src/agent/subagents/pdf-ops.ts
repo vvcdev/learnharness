@@ -27,6 +27,22 @@ export interface PdfPageInfo {
 	/** Fraction of math-flavored chars — the render-this-page signal (port
 	 *  of the skill's unicode-range density heuristic). */
 	math_density: number;
+	/** Text items on the page — many tiny fragments mean a table or typeset
+	 *  equations whose extracted text has lost its structure. */
+	item_count: number;
+}
+
+export type VisualReason = "no-text" | "image" | "math" | "dense-layout";
+
+/** Why a page must be READ FROM ITS IMAGE rather than trusted as text
+ *  (owner 2026-10-29: scanned and math/table-heavy PDFs read badly). Null
+ *  when the extracted text is enough. Pure — one rule for every caller. */
+export function visualReason(p: PdfPageInfo): VisualReason | null {
+	if (p.text_length < 20) return "no-text"; // scanned page or text drawn as shapes
+	if (p.image_count > 0) return "image";
+	if (p.math_density >= 0.03) return "math";
+	if (p.item_count >= 100 && p.text_length / p.item_count < 4) return "dense-layout";
+	return null;
 }
 
 export interface PdfInfo {
@@ -135,6 +151,7 @@ export async function pdfInfo(filePath: string): Promise<PdfInfo> {
 			text_length: text.length,
 			image_count: imageCount,
 			math_density: Math.round(mathDensity(text) * 10000) / 10000,
+			item_count: content.items.length,
 		});
 	}
 	return {
