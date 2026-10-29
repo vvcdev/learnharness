@@ -109,8 +109,8 @@ export function useChatSession({ chatId, initialMessages, initialError, initiall
 		[model],
 	);
 	const submitAnswer = useCallback(
-		(tool: string, toolCallId: string, output: QuestionAnswerData) =>
-			void model.submitAnswer(tool, toolCallId, output),
+		(tool: string, toolCallId: string, output: QuestionAnswerData, questionKey?: string) =>
+			void model.submitAnswer(tool, toolCallId, output, questionKey),
 		[model],
 	);
 	const answerSilently = useCallback(
@@ -118,15 +118,15 @@ export function useChatSession({ chatId, initialMessages, initialError, initiall
 		[model],
 	);
 	const dismissQuestion = useCallback(
-		(toolCallId: string, answer: QuestionAnswerData) => void model.dismissQuestion(toolCallId, answer),
+		(toolCallId: string, answer: QuestionAnswerData, questionKey?: string) => void model.dismissQuestion(toolCallId, answer, "dismiss", questionKey),
 		[model],
 	);
 	const dismissProblem = useCallback(
 		(problemCallId: string) => void model.dismissProblem(problemCallId),
 		[model],
 	);
-	const questionDraft = useCallback((toolCallId: string) => model.questionDraft(toolCallId), [model]);
-	const saveQuestionDraft = useCallback((toolCallId: string, draft: Parameters<SessionModel["saveQuestionDraft"]>[1]) => model.saveQuestionDraft(toolCallId, draft), [model]);
+	const questionDraft = useCallback((questionKey: string) => model.questionDraft(questionKey), [model]);
+	const saveQuestionDraft = useCallback((questionKey: string, draft: Parameters<SessionModel["saveQuestionDraft"]>[1]) => model.saveQuestionDraft(questionKey, draft), [model]);
 	const setMessages = useCallback((record: LhMessage[], turnError?: string) => model.setMessages(record, turnError), [model]);
 	const adoptRecord = useCallback((record: LhMessage[]) => model.adoptRecord(record), [model]);
 	const stop = useCallback(() => model.stop(), [model]);

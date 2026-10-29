@@ -1,6 +1,13 @@
-import { describe, it } from "node:test";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import { after, describe, it } from "node:test";
 import assert from "node:assert/strict";
-import {
+const testData = fs.mkdtempSync(path.join(os.tmpdir(), "lh-cli-catalog-data-"));
+process.env.LH_DATA_DIR = testData;
+after(() => fs.rmSync(testData, { recursive: true, force: true }));
+const {
+	catalogContextLimits,
 	catalogDefaultsFor,
 	catalogProviders,
 	catalogRolePins,
@@ -12,16 +19,18 @@ import {
 	toModelDto,
 	validateChatSettings,
 	validateModelsSettings,
-} from "../src/server/model-catalog.ts";
+} = await import("../src/server/model-catalog.ts");
 import type { EffectiveSlot } from "../src/core/settings-resolution.ts";
 import type { SettingsValidation } from "../src/server/model-catalog.ts";
 import { clampThinkingLevel, getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import { DEFAULT_THINKING_ORDER } from "../src/core/settings.ts";
-import { piEngineForSpec, piModels } from "../src/agent/models.ts";
+const { piEngineForSpec, piModels } = await import("../src/agent/models.ts");
 import { BACKGROUND_MODEL_ROLES } from "../src/core/settings.ts";
 import { resolveSettings } from "../src/core/settings-resolution.ts";
-import { readSettings } from "../src/store/settings.ts";
-import { effectiveSettings } from "../src/server/stores.ts";
+const { readSettings, writeSettings } = await import("../src/store/settings.ts");
+const { SETTINGS_FILE } = await import("../config.ts");
+const { effectiveSettings } = await import("../src/server/stores.ts");
+const { providerKeyPresent } = await import("../src/server/keys.ts");
 
 // The model-control wave (2026-09-12): pi-ai owns the registry — these pins
 // hold our projection + validation honest against the shipped catalog, and
@@ -59,8 +68,10 @@ describe("the model catalog projection", () => {
 			assert.equal(typeof m.id, "string");
 			assert.equal(typeof m.name, "string");
 			assert.ok(Array.isArray(m.supportedLevels));
-			assert.ok(typeof m.cost.input === "number" && typeof m.cost.output === "number");
-			assert.ok(m.contextWindow > 0);
+			if (m.provider === "claude-code") assert.equal(m.cost, null);
+			else assert.ok(m.cost && typeof m.cost.input === "number" && typeof m.cost.output === "number");
+			if (m.provider === "claude-code") assert.equal(m.contextWindow, null);
+			else assert.ok(m.contextWindow !== null && m.contextWindow > 0);
 		}
 		const glm = models.find((m) => m.id === "z-ai/glm-5.3-flash");
 		assert.ok(glm, "glm-5.3-flash in catalog");
@@ -121,6 +132,7 @@ describe("the model catalog projection", () => {
 		assert.equal(dto.id, raw.id);
 		assert.equal(dto.name, raw.name);
 		assert.deepEqual(dto.supportedLevels, getSupportedThinkingLevels(raw));
+		assert.ok(dto.cost);
 		assert.equal(dto.cost.input, raw.cost.input);
 		assert.equal(dto.contextWindow, raw.contextWindow);
 	});
@@ -327,3 +339,29 @@ describe("pi thinking truth (pinned against pi-ai upgrades)", () => {
 		assert.throws(() => piEngineFor("prober"), /no configured model for role "prober"/);
 	});
 });
+/** Runs fn with PATH and HOME pointed at a temp dir, so the CLI lookup only
+ *  finds a claude binary when installed is true. */
+function withClaudeInstalled(installed: boolean, fn: () => void, enabled = true): void {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "claude-catalog-"));
+	const saved = { PATH: process.env.PATH, HOME: process.env.HOME, npm_config_prefix: process.env.npm_config_prefix };
+	const settings = readSettings();
+	writeSettings({ ...(settings ?? { version: 1 }), claudeCode: { enabled } });
+
+	if (installed) fs.writeFileSync(path.join(dir, "claude"), "#!/bin/sh\n", { mode: 0o755 });
+	process.env.PATH = dir;
+	process.env.HOME = dir;
+	delete process.env.npm_config_prefix;
+
+	try {
+		fn();
+	} finally {
+		for (const [name, value] of Object.entries(saved)) {
+			if (value === undefined) delete process.env[name];
+			else process.env[name] = value;
+		}
+		if (settings) writeSettings(settings);
+		else fs.rmSync(SETTINGS_FILE, { force: true });
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+}
+

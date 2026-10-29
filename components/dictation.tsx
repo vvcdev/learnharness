@@ -234,6 +234,16 @@ export function rmsToMeter(rms: number): number {
  * window, one pending question, one target at a time.
  */
 let questionTarget: DictationAppend | null = null;
+let composerTarget: DictationAppend | null = null;
+
+/** File references use the very same default destination as dictation,
+ * including claims whose dock is currently collapsed. */
+export function appendToPrimaryInput(text: string): boolean {
+	const target = questionTarget ?? composerTarget;
+	if (!target) return false;
+	target(text, 0);
+	return true;
+}
 
 /** A target's append: the run's joined transcript + its recorded length
  *  in seconds (voice-notes wave, owner 2026-10-25 — the voice box totals
@@ -326,6 +336,13 @@ export function useDictation({ append }: { append: DictationAppend }): Dictation
 	 *  retarget (composer↔question) is honored on the very next final. */
 	const appendRef = useRef(append);
 	appendRef.current = append;
+	useEffect(() => {
+		const target: DictationAppend = (text, seconds) => appendRef.current(text, seconds);
+		composerTarget = target;
+		return () => {
+			if (composerTarget === target) composerTarget = null;
+		};
+	}, []);
 
 	// Live machinery (non-render values). The MediaStream tracks stop and
 	// the per-run nodes disconnect on teardown; the socket is recreated per
