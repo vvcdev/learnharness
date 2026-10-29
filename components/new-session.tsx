@@ -111,6 +111,8 @@ export function DraftShell({
 	onSourceError,
 	activeProject = null,
 	onActiveProject,
+	noProbing = false,
+	onNoProbing,
 	practice,
 	onPractice,
 	images,
@@ -157,6 +159,9 @@ export function DraftShell({
 	onSourceError?: (error: string | null) => void;
 	activeProject?: ProjectSummary | null;
 	onActiveProject?: (project: ProjectSummary | null) => void;
+	/** Teaching drafts: "No probing" — the first message tells the prober to skip the probe. */
+	noProbing?: boolean;
+	onNoProbing?: (v: boolean) => void;
 }) {
 	// Voice dictation (STT wave, 2026-09-17): finals append at the end of the
 	// draft text (via the parent's onChange — the truth lives there); the
@@ -300,7 +305,23 @@ export function DraftShell({
 								<StatsBar
 									turns={[]}
 									onModelChange={onModelChange}
-									leadingSlot={<ProjectPackControl onActiveChange={onActiveProject} />}
+									leadingSlot={
+										<>
+											<ProjectPackControl onActiveChange={onActiveProject} />
+											{mode === "teach" && (
+												<label className="flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground">
+													<input
+														type="checkbox"
+														data-testid="no-probing"
+														checked={noProbing}
+														onChange={(e) => onNoProbing?.(e.target.checked)}
+														className="size-3.5 accent-primary"
+													/>
+													No probing
+												</label>
+											)}
+										</>
+									}
 								/>
 							</div>
 						</div>
@@ -320,6 +341,9 @@ export function DraftShell({
 	);
 }
 
+/** Appended to the first message when "No probing" is ticked; the prober's doctrine keys on it. */
+export const NO_PROBING_LINE = "(No probing — just teach me.)";
+
 export function NewSession({ initialConfigured, mode = "teach" }: { initialConfigured: boolean; mode?: "teach" | "practice" | "chat" }) {
 	const router = useRouter();
 	const [text, setText] = useState("");
@@ -333,6 +357,12 @@ export function NewSession({ initialConfigured, mode = "teach" }: { initialConfi
 		setText(v);
 	};
 	const [busy, setBusy] = useState(false);
+	const [noProbing, setNoProbing] = useState(false);
+	const noProbingRef = useRef(false);
+	const applyNoProbing = (v: boolean) => {
+		noProbingRef.current = v;
+		setNoProbing(v);
+	};
 	/* Images on the first message (owner 2026-10-26): held until the send
 	 * creates the session; the draft's model (strong slot) gates them. */
 	const [draftModel, setDraftModel] = useState<string | undefined>();
@@ -446,7 +476,8 @@ export function NewSession({ initialConfigured, mode = "teach" }: { initialConfi
 				}
 				const id = target.slice("/chat/".length, target.indexOf("?"));
 				try {
-					const prompt = await openingWithSources(id, opening, sourcesRef.current);
+					const sourced = await openingWithSources(id, opening, sourcesRef.current);
+					const prompt = mode === "teach" && noProbingRef.current ? `${sourced}\n\n${NO_PROBING_LINE}` : sourced;
 					// Pasted images (owner 2026-10-26): into the new session; their
 					// refs ride the first message.
 					const refs = await imagesRef.current.uploadTo(id);
@@ -487,6 +518,8 @@ export function NewSession({ initialConfigured, mode = "teach" }: { initialConfi
 				onSourceError={setSourceError}
 				activeProject={activeProject}
 				onActiveProject={onActiveProject}
+				noProbing={noProbing}
+				onNoProbing={applyNoProbing}
 				picks={picks}
 				onOpenPicker={openPicker}
 				onClearPicks={() => applyPicks([])}
